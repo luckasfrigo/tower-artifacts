@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Card } from '/lib/board.js'
 import { apiError, type CallCtx, isApiError, type Start, type StreamFact } from '/lib/extension.js'
-import { type Artifact, ARTIFACTS, IMPORT_PROMPT, pageOf, artifactOf, formatArtifact, type Header, idOfUrl, isArtifact, TOWER_WIDE, urlIn } from './client/artifact.ts'
+import { type Artifact, ARTIFACTS, LIST_PROMPT, pageOf, artifactOf, formatArtifact, type Header, idOfUrl, isArtifact, TOWER_WIDE, urlIn } from './client/artifact.ts'
 
 /**
  * The artifacts catalog's writer: every verb that changes an entry of the tower-wide `artifacts` collection. `record`
@@ -156,12 +156,22 @@ const start: Start = (ctx) => {
     return c.dir
   }
 
-  /** Keeps `file` as the entry's page, refusing what isn't an html page. */
-  const keepPage = async (entry: string, file: string) => {
-    const html = await readFile(file, 'utf8')
-    if (!/^\s*<(!doctype|html|head|body|meta|title|style|script|div|main|svg)/i.test(html))
-      throw Object.assign(new Error(`${file} is not an html page: keep the page the Artifact tool's read gave, saved as a file`), { code: 'invalid' })
-    return ctx.collections.put(TOWER_WIDE, ARTIFACTS, pageOf(entry), html)
+  /** Keeps `file`, as it is, as the entry's page. */
+  const keepPage = async (entry: string, file: string) => ctx.collections.put(TOWER_WIDE, ARTIFACTS, pageOf(entry), await readFile(file, 'utf8'))
+
+  /**
+   * What a publish's page came to, said after its record: kept when it is html, as published (a fragment the Artifact
+   * tool wraps in its skeleton included), or why not. Never a failure of the record, which is the hook's point.
+   */
+  const keptWords = async (entry: string, file: string | undefined) => {
+    if (!file) return ''
+    if (!/\.html?$/i.test(file)) return ` Its page (${basename(file)}) is not html, so the gallery can't show it.`
+    try {
+      await keepPage(entry, file)
+      return ' Its page is kept beside it.'
+    } catch (err) {
+      return ` Its page was not kept: ${(err as Error).message}.`
+    }
   }
 
   /** Every Cowork artifact in Claude Desktop's data, into the catalog: new ones added, those in refreshed. */
@@ -196,30 +206,32 @@ const start: Start = (ctx) => {
   }
 
   /**
-   * The first load: once, as the tower first runs the extension, everything there is to load. Claude Desktop's Cowork
-   * artifacts are on this machine and read here; the claude.ai account is reached only through Claude's Artifact tool,
-   * which only an interactive session has, so a worker is hired to import it, on the `floor` setting's floor or the
-   * board's first. That hire is the stream's fact, so a restart doesn't hire again. Tried each tick until a floor is
-   * on the board to hire on.
+   * The first load: once, as the tower first runs the extension, every artifact there is, listed. Claude Desktop's
+   * Cowork artifacts are on this machine and read here; the claude.ai account is reached only through Claude's
+   * Artifact tool, which only an interactive session has, so a worker is hired to list it and add each entry, on the
+   * `floor` setting's floor or the board's first. Pages and summaries, one Artifact read each, are left to the
+   * gallery's buttons: the user's call. The hire is the stream's fact, so a restart doesn't hire again. Waits each tick
+   * for a floor to hire on; a failure is logged and not tried again until the extension restarts.
    */
   const firstLoad = async () => {
-    if ((ctx.own.streams('loads') as Loads).hired || loading) return
+    if (tried || (ctx.own.streams('loads') as Loads).hired) return
     const floors = ctx.board().floors
     const project = floors.find((f) => f.id === settings.floor)?.id ?? floors[0]?.id
     if (!project) return
-    loading = true
+    tried = true
     try {
       const desktop = await importDesktop()
       ctx.log(`first load: ${desktop.ids.length} Cowork artifacts from ${desktop.root}, ${desktop.added} new`)
-      const reply = (await ctx.call('tower/spawn', { project, runtime: 'claude', prompt: IMPORT_PROMPT })) as { id: string } | ReturnType<typeof apiError>
-      if (isApiError(reply)) return ctx.log(`first load: the account import couldn't be hired on ${project}: ${reply.message}`)
-      await ctx.streams.append('loads', {}, 'h', { session: reply.id, project })
-      ctx.log(`first load: hired ${reply.id} on ${project} to import the claude.ai account`)
-    } finally {
-      loading = false
+    } catch (err) {
+      ctx.log(`first load: Claude Desktop's artifacts couldn't be read: ${(err as Error).message}. Fix it, then press Refresh from Claude Desktop in the gallery`)
     }
+    const reply = (await ctx.call('tower/spawn', { project, runtime: 'claude', prompt: LIST_PROMPT })) as { id: string } | ReturnType<typeof apiError>
+    if (isApiError(reply))
+      return ctx.log(`first load: the account import couldn't be hired on ${project}: ${reply.message}. Press Import my claude.ai account in the gallery once it can`)
+    await ctx.streams.append('loads', {}, 'h', { session: reply.id, project })
+    ctx.log(`first load: hired ${reply.id} on ${project} to list the claude.ai account`)
   }
-  let loading = false
+  let tried = false
   ctx.every(5_000, firstLoad)
 
   return {
@@ -271,8 +283,8 @@ const start: Start = (ctx) => {
           const ask = was?.summary
             ? `If this change alters what it is for, update its summary: tower x artifacts context ${item.id} <<'EOF' … EOF`
             : `Write its creation context now, while you hold it, so another worker can modify or clone it without redoing it: tower x artifacts context ${item.id} <<'EOF' … EOF (what it is for, who asked and why, the data and sources it draws on, the choices made and what was ruled out, and how it is built).`
-          if (file) await keepPage(item.id, file)
-          return { id: item.id, tag: item.tag, isNew, said: `${isNew ? 'Recorded' : 'Updated'} the artifact “${title}” in the catalog as ${item.tag}. ${ask}` }
+          const kept = await keptWords(item.id, file)
+          return { id: item.id, tag: item.tag, isNew, said: `${isNew ? 'Recorded' : 'Updated'} the artifact “${title}” in the catalog as ${item.tag}.${kept} ${ask}` }
         }),
 
       add: async (input: { url: string; title: string; created?: string; updated?: string; description?: string; summary?: string }) =>
@@ -302,6 +314,9 @@ const start: Start = (ctx) => {
         said(async () => {
           const id = idOf(artifact)
           if (!(await existing(id))) return notFound(artifact)
+          // A read's saved page, refused only when it holds no markup at all: a fragment is a page the tool wraps.
+          if (!/<[a-z!][^>]*>/i.test(await readFile(file, 'utf8')))
+            return apiError('invalid', `${file} holds no html: keep the page the Artifact tool's read gave, saved as a file`)
           const item = await keepPage(id, file)
           return { id: item.id, tag: item.tag, said: `Kept the page of ${id} as ${item.tag}: \`tower show ${join(dirOf(), item.id)}\` shows it beside you` }
         }),

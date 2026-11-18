@@ -10,7 +10,8 @@ context it was made in, so any worker can modify or clone it without starting ov
 - **The main pane:** the gallery. Pinned artifacts come first, then the rest, newest first, searched by title,
   description, summary and who made it. Click one to see its link, the worker, floor or Desktop chat that made it,
   its creation context and the prompts behind it. **Show page** draws its kept page in place, served the way `tower
-  show` serves a file. From there you can open it on claude.ai, pin it, or hire a worker on a floor you pick to
+  show` serves a file; **Fetch page** has a worker keep one that isn't here yet. From there you can open it on
+  claude.ai, pin it, or hire a worker on a floor you pick to
   **modify** it (same link) or **clone** it (a new artifact). The worker starts from the entry.
 
   | Light | Dark |
@@ -40,11 +41,11 @@ Clone this repo anywhere, then name its folder in the config:
 ```
 
 **First load.** The first time the tower runs the extension, it imports Claude Desktop's Cowork artifacts on this
-machine. It also hires one worker, on the `floor` setting's floor or the board's first, to import your claude.ai
-account. Only an interactive Claude session has the Artifact tool, and only that tool reaches claude.ai. The worker
-adds every artifact and keeps its page and a summary of it. That's one Artifact read per artifact, so a large account
-takes a while and uses tokens. The hire is logged in the extension's `loads` stream, so it happens once. Later, the
-gallery's **Refresh from Claude Desktop** and **Import my claude.ai account** do it again.
+machine. It also hires one worker, on the `floor` setting's floor or the board's first, to list your claude.ai account
+and add every artifact. Only an interactive Claude session has the Artifact tool, and only that tool reaches claude.ai.
+The first load stops at the list: pages and summaries cost one Artifact read each, so they're yours to ask for. Use
+**Fetch page** on one artifact, or **Import my claude.ai account** for all of them. The hire is logged in the
+extension's `loads` stream, so it happens once; a failure is logged and waits for the gallery's buttons.
 
 The hook and skills reach sessions that start after the extension is added; a running worker doesn't get them.
 

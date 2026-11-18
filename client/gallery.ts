@@ -2,7 +2,7 @@ import type { Board } from '/lib/board.js'
 import { markdownCss, markdownHtml } from '/lib/markdown.js'
 import { closeHtml, copyTelling, itemPath, type Mount, paintOnce, viewCss } from '/lib/view.js'
 import { esc } from '/lib/words.js'
-import { type Artifact, ARTIFACTS, artifactOf, type Broken, byUpdated, clonePrompt, IMPORT_PROMPT, isArtifact, matches, modifyPrompt, pageOf, TOWER_WIDE } from './artifact.ts'
+import { type Artifact, ARTIFACTS, artifactOf, type Broken, byUpdated, clonePrompt, IMPORT_PROMPT, isArtifact, matches, modifyPrompt, pageOf, pagePrompt, TOWER_WIDE } from './artifact.ts'
 
 /**
  * `artifacts/gallery`, on the board: every entry of the tower-wide `artifacts` collection, pinned ones first, then the
@@ -144,12 +144,12 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
       ['Local page', a.file ?? ''],
       ['Transcript', a.transcript ?? ''],
       ['Entry', tagOf(a.id)],
-      ['Page', hasPage(a.id) ? tagOf(pageOf(a.id)) : 'not kept yet: a worker keeps it with tower x artifacts page'],
+      ['Page', hasPage(a.id) ? tagOf(pageOf(a.id)) : 'not kept yet: Fetch page has a worker keep it'],
     ]
     const can = board.floors.length > 0
     return `<h1>${esc(a.title)}</h1>${a.description ? `<p class="desc">${esc(a.description)}</p>` : ''}
       <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open on claude.ai</a>` : ''}
-        ${hasPage(a.id) ? `<button class="secondary" data-show-page aria-pressed="${paging}">${paging ? 'Show context' : 'Show page'}</button>` : ''}
+        ${hasPage(a.id) ? `<button class="secondary" data-show-page aria-pressed="${paging}">${paging ? 'Show context' : 'Show page'}</button>` : a.url && can ? '<button class="secondary" data-keep-page title="a worker reads it on claude.ai and keeps it here">Fetch page</button>' : ''}
         <button class="secondary" data-pin="${esc(a.id)}">${a.pinned ? 'Unpin' : 'Pin'}</button>
         ${can ? `${floorsHtml(a)}<button class="secondary" data-work="modify">Modify with a worker</button><button class="secondary" data-work="clone">Clone with a worker</button>` : ''}
         <button class="secondary" data-copy-tag>Copy entry tag</button></div>
@@ -216,6 +216,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
       return void call(r && isArtifact(r) && r.pinned ? 'artifacts/unpin' : 'artifacts/pin', { artifact: pin })
     }
     const a = current()
+    if (a && target.closest('[data-keep-page]')) return hire(pagePrompt(a, tagOf(a.id)))
     if (a && target.closest('[data-show-page]')) return ((paging = !paging), draw())
     if (a && target.closest('[data-copy-tag]')) return void copyTelling(tagOf(a.id), 'the entry tag', kit.toast)
     const work = target.closest<HTMLElement>('[data-work]')?.dataset.work

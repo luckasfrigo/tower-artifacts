@@ -6,9 +6,12 @@ description: Import the user's claude.ai artifacts into the tower's artifacts ca
 # Import artifacts
 
 The catalog is the tower-wide `artifacts` collection: one entry per artifact (`<id>.md`: its link, where it came
-from, its creation context) and its page beside it (`<id>.html`), which the gallery shows. The extension hires you on
-its first load to bring in everything; the user may also ask later. Work through all four steps without stopping to
-ask, then report.
+from, its creation context) and its page beside it (`<id>.html`), which the gallery shows. Work through the steps
+without stopping to ask, then report.
+
+- **Started as `/artifacts:import list`** (the extension's first load): steps 1, 2 and 4 only. Pages and summaries
+  cost one Artifact read each, so they wait for the user, who asks from the gallery.
+- **Otherwise** (the gallery's **Import my claude.ai account**, or the user asking): all four steps.
 
 ## 1. Claude Desktop's Cowork artifacts
 

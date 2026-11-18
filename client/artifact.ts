@@ -35,8 +35,15 @@ export type Header = {
 export type Artifact = Header & { id: string; title: string; summary: string; prompts: string[] }
 export type Broken = { id: string; why: string }
 
-/** What an account import's worker starts on: the import skill, on every artifact of the claude.ai account. */
+/** What the first load's worker starts on: the import skill, listing the claude.ai account and adding every artifact, no more. */
+export const LIST_PROMPT = '/artifacts:import list: add every artifact of my claude.ai account to the catalog, without reading pages or writing summaries'
+
+/** What the gallery's account import starts on: every artifact, each with its page and a summary. */
 export const IMPORT_PROMPT = '/artifacts:import every artifact of my claude.ai account, with its page and a summary'
+
+/** What a worker hired to keep one artifact's page is asked. */
+export const pagePrompt = (a: Artifact, tag: string) =>
+  `Keep the page of the artifact “${a.title}” (${a.url}) in the catalog: read it with the Artifact tool, keep it with \`tower x artifacts page ${a.id} --file <the saved page>\`, and if its entry (\`tower read ${tag}\`) has no summary, write one with \`tower x artifacts context\`. Use the artifacts:import skill's step 3 for this one artifact only.`
 
 /** An entry's page beside it: `<id>.html` for `<id>.md`, what the gallery shows and a worker `tower show`s. */
 export const pageOf = (entry: string) => entry.replace(/\.md$/, '.html')
