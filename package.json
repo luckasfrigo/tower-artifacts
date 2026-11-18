@@ -1,0 +1,16 @@
+{
+  "name": "tower-artifacts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A tower extension: a catalog of claude.ai artifacts with their creation context",
+  "scripts": {
+    "types": "tower types .",
+    "typecheck": "tsc -p .",
+    "check": "tower extensions check ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2"
+  }
+}

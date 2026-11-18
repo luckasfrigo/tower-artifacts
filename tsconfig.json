@@ -1,0 +1,1 @@
+{ "extends": "./.tower/tsconfig.json", "include": ["*.ts", "client/**/*.ts"] }
