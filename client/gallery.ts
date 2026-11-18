@@ -2,7 +2,7 @@ import type { Board } from '/lib/board.js'
 import { markdownCss, markdownHtml } from '/lib/markdown.js'
 import { closeHtml, copyTelling, itemPath, type Mount, paintOnce, viewCss } from '/lib/view.js'
 import { esc } from '/lib/words.js'
-import { type Artifact, ARTIFACTS, type Broken, byUpdated, clonePrompt, isArtifact, matches, modifyPrompt, TOWER_WIDE, artifactOf } from './artifact.ts'
+import { type Artifact, ARTIFACTS, artifactOf, type Broken, byUpdated, clonePrompt, IMPORT_PROMPT, isArtifact, matches, modifyPrompt, pageOf, TOWER_WIDE } from './artifact.ts'
 
 /**
  * `artifacts/gallery`, on the board: every entry of the tower-wide `artifacts` collection, pinned ones first, then the
@@ -45,6 +45,7 @@ const STYLE = viewCss(
   & .reader .missing { color: var(--muted); font-style: italic; margin: 0; }
   & .reader blockquote { margin: 0 0 var(--sp-m); padding: var(--sp-s) var(--sp-l); border-left: 3px solid var(--line-strong); color: var(--ink); white-space: pre-wrap; }
   & .reader .empty { color: var(--muted); }
+  & .reader .page { flex: 1; min-height: 24em; width: 100%; border: 1px solid var(--line); border-radius: var(--radius-s); background: #fff; }
   @media (max-width: 720px) { & .gallery { grid-template-columns: 1fr; grid-template-rows: minmax(10em, 40%) 1fr; } & .reader { padding: var(--sp-l); } }`,
 )
 
@@ -61,6 +62,8 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
   let board: Board = first
   let query = ''
   let open: string | undefined
+  /** Whether the artifact open shows its page rather than its context. */
+  let paging = false
   /** The floor a worker is hired on, as last picked. */
   let floorPick: string | undefined
   const reads = new Map<string, Read>()
@@ -68,13 +71,14 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
 
   host.innerHTML = `<style>${STYLE}${markdownCss}</style>
   <div class="shelf-head"><span class="label">Artifacts</span><span class="dim">pinned first, each with how it was made</span>
-    <button class="secondary" data-import>Import from Claude Desktop</button><span class="actions"></span></div>
+    <button class="secondary" data-import>Refresh from Claude Desktop</button><button class="secondary" data-import-account>Import my claude.ai account</button><span class="actions"></span></div>
   <div class="gallery"><nav class="index" aria-label="artifacts"><input type="search" placeholder="Search artifacts" aria-label="search artifacts"><div class="list"></div></nav>
     <article class="reader" aria-live="polite"></article></div>`
   const $ = <T extends Element>(selector: string) => host.querySelector<T>(selector)!
 
   const collection = () => board.collections.find((c) => c.id === ARTIFACTS)
   const files = () => (collection()?.items ?? []).filter((i) => i.id.endsWith('.md'))
+  const hasPage = (id: string) => collection()?.items.some((i) => i.id === pageOf(id)) ?? false
   const tagOf = (id: string) => collection()?.items.find((i) => i.id === id)?.tag ?? id
 
   const readAll = async () => {
@@ -119,6 +123,16 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     return `<select data-hire-floor aria-label="floor to hire the worker on">${floors.map((f) => `<option value="${esc(f.id)}"${f.id === pick ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`
   }
 
+  /**
+   * The kept page, framed from the extension's `page/<id>` read, which the tower serves as it serves a file a worker
+   * shows (`tower show`): at an origin of its own, under the same sandbox headers. Keyed by the page's version, so a
+   * new one reloads the frame.
+   */
+  const pageHtml = (a: Artifact) => {
+    const v = collection()?.items.find((i) => i.id === pageOf(a.id))?.modifiedAt ?? 0
+    return `<iframe class="page" title="${esc(a.title)}" src="/artifacts/page/${encodeURIComponent(a.id)}?v=${v}"></iframe>`
+  }
+
   const readerHtml = (a: Artifact) => {
     const meta: [string, string][] = [
       ['Source', SOURCE_WORDS[a.source]],
@@ -130,19 +144,21 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
       ['Local page', a.file ?? ''],
       ['Transcript', a.transcript ?? ''],
       ['Entry', tagOf(a.id)],
+      ['Page', hasPage(a.id) ? tagOf(pageOf(a.id)) : 'not kept yet: a worker keeps it with tower x artifacts page'],
     ]
     const can = board.floors.length > 0
     return `<h1>${esc(a.title)}</h1>${a.description ? `<p class="desc">${esc(a.description)}</p>` : ''}
       <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open on claude.ai</a>` : ''}
+        ${hasPage(a.id) ? `<button class="secondary" data-show-page aria-pressed="${paging}">${paging ? 'Show context' : 'Show page'}</button>` : ''}
         <button class="secondary" data-pin="${esc(a.id)}">${a.pinned ? 'Unpin' : 'Pin'}</button>
         ${can ? `${floorsHtml(a)}<button class="secondary" data-work="modify">Modify with a worker</button><button class="secondary" data-work="clone">Clone with a worker</button>` : ''}
         <button class="secondary" data-copy-tag>Copy entry tag</button></div>
-      <dl>${meta
+      ${paging && hasPage(a.id) ? pageHtml(a) : `<dl>${meta
         .filter(([, v]) => v)
         .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`)
         .join('')}</dl>
       <h2>Creation context</h2>${a.summary ? `<div class="md">${markdownHtml(a.summary)}</div>` : `<p class="missing">No summary written yet: ask a worker to write one with <code>tower x artifacts context ${esc(a.id)}</code>.</p>`}
-      <h2>Prompts that made it</h2>${a.prompts.length ? a.prompts.map((p) => `<blockquote>${esc(p)}</blockquote>`).join('') : '<p class="missing">The chat that made it is not on this machine.</p>'}`
+      <h2>Prompts that made it</h2>${a.prompts.length ? a.prompts.map((p) => `<blockquote>${esc(p)}</blockquote>`).join('') : '<p class="missing">The chat that made it is not on this machine.</p>'}`}`
   }
 
   const current = () => {
@@ -161,11 +177,23 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     paintOnce($('.reader'), a ? readerHtml(a) : '<p class="empty">Pick an artifact.</p>')
   }
 
+  /** One of this extension's verbs, which the client's types (the core's verbs) don't name. */
+  const ownVerb = tower.call as unknown as (verb: string, input: unknown) => Promise<{ said?: string }>
   const call = (verb: string, input: unknown, done?: string) =>
-    tower.call(verb, input).then(
-      (reply: { said?: string }) => kit.toast(done ?? reply.said ?? 'Done'),
+    ownVerb(verb, input).then(
+      (reply) => kit.toast(done ?? reply.said ?? 'Done'),
       (err: Error) => kit.toast(err.message),
     )
+
+  /** A worker on the floor picked, else the first, started on `prompt`, then shown. */
+  const hire = (prompt: string) => {
+    const project = floorPick ?? board.floors[0]?.id
+    if (!project) return kit.toast('A worker starts on a floor: add one first')
+    void tower.call('spawn', { project, runtime: 'claude', prompt }).then(
+      ({ id }) => kit.display(`card:${id}`),
+      (err: Error) => kit.toast(err.message),
+    )
+  }
 
   $<HTMLInputElement>('input').addEventListener('input', (e) => {
     query = (e.target as HTMLInputElement).value
@@ -181,24 +209,23 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     const target = e.target as Element
     if (target.closest('[data-home]')) return kit.display('board')
     if (target.closest('[data-import]')) return void call('artifacts/desktop', {})
+    if (target.closest('[data-import-account]')) return hire(IMPORT_PROMPT)
     const pin = target.closest<HTMLElement>('[data-pin]')?.dataset.pin
     if (pin) {
       const r = reads.get(pin)?.artifact
       return void call(r && isArtifact(r) && r.pinned ? 'artifacts/unpin' : 'artifacts/pin', { artifact: pin })
     }
     const a = current()
+    if (a && target.closest('[data-show-page]')) return ((paging = !paging), draw())
     if (a && target.closest('[data-copy-tag]')) return void copyTelling(tagOf(a.id), 'the entry tag', kit.toast)
     const work = target.closest<HTMLElement>('[data-work]')?.dataset.work
     if (a && work && floorPick) {
       const tag = tagOf(a.id)
-      const prompt = work === 'modify' ? modifyPrompt(a, tag) : clonePrompt(a, tag)
-      return void tower.call('spawn', { project: floorPick, runtime: 'claude', prompt }).then(
-        ({ id }: { id: string }) => kit.display(`card:${id}`),
-        (err: Error) => kit.toast(err.message),
-      )
+      return hire(work === 'modify' ? modifyPrompt(a, tag) : clonePrompt(a, tag))
     }
     const id = target.closest<HTMLElement>('[data-artifact]')?.dataset.artifact
     if (!id) return
+    if (id !== open) paging = false
     open = id
     draw()
     $('.reader').scrollTop = 0

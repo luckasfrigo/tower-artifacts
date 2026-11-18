@@ -10,10 +10,23 @@
       "name": "gallery",
       "size": "1280x800",
       "open": "#v/artifacts/gallery/board",
-      "steps": [{ "until": "[data-view=\"artifacts/gallery\"] .reader h1", "text": "Churn Signals Dashboard" }],
+      "steps": [
+        {
+          "until": "[data-view=\"artifacts/gallery\"] .reader h1",
+          "text": "Churn Signals Dashboard"
+        }
+      ],
       "crop": "[data-view=\"artifacts/gallery\"]",
       "pad": 0
     }
   ],
-  "text": [{ "name": "whoami", "run": "tower whoami | grep artifacts" }]
+  "text": [
+    {
+      "name": "whoami",
+      "run": "tower whoami | grep artifacts"
+    }
+  ],
+  "settings": {
+    "desktop": "/nonexistent"
+  }
 }

@@ -35,6 +35,12 @@ export type Header = {
 export type Artifact = Header & { id: string; title: string; summary: string; prompts: string[] }
 export type Broken = { id: string; why: string }
 
+/** What an account import's worker starts on: the import skill, on every artifact of the claude.ai account. */
+export const IMPORT_PROMPT = '/artifacts:import every artifact of my claude.ai account, with its page and a summary'
+
+/** An entry's page beside it: `<id>.html` for `<id>.md`, what the gallery shows and a worker `tower show`s. */
+export const pageOf = (entry: string) => entry.replace(/\.md$/, '.html')
+
 export const isArtifact = (a: Artifact | Broken): a is Artifact => !('why' in a)
 
 const SUMMARY = '## Summary'

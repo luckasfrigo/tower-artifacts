@@ -1,23 +1,24 @@
 # Artifacts
 
-A catalog of your claude.ai artifacts in the tower: the ones your workers publish, recorded as they do it, and the
-ones you import from Claude Desktop and the claude.ai gallery. Each one keeps the context it was made in, so any
-worker can modify or clone it without starting over. The ones you pin stay on top.
+A catalog of your claude.ai artifacts in the tower: everything in Claude Desktop and your claude.ai account,
+imported on first load, and every artifact your workers publish from then on. Each one keeps its page and the
+context it was made in, so any worker can modify or clone it without starting over. The ones you pin stay on top.
 
 ## What it adds
 
-- **The main pane:** the Artifacts gallery (the page icon beside Floors and Stats, or the palette). Pinned artifacts
-  come first, then the rest, newest first, searched by title, description, summary and who made it. Click one to
-  see its link, the worker, floor or Desktop chat that made it, its creation context and the prompts behind it. From
-  there you can open it on claude.ai, pin or unpin it, or hire a worker on a floor you pick to **modify** it (same
-  link) or **clone** it (a new artifact). The worker starts from the entry.
+- **The sidebar:** an **Artifacts** tab after Floors and Stats, which opens the gallery. It's also in the palette.
+- **The main pane:** the gallery. Pinned artifacts come first, then the rest, newest first, searched by title,
+  description, summary and who made it. Click one to see its link, the worker, floor or Desktop chat that made it,
+  its creation context and the prompts behind it. **Show page** draws its kept page in place, served the way `tower
+  show` serves a file. From there you can open it on claude.ai, pin it, or hire a worker on a floor you pick to
+  **modify** it (same link) or **clone** it (a new artifact). The worker starts from the entry.
 
   | Light | Dark |
   | --- | --- |
   | ![The gallery](shots/gallery-light.png) | ![The gallery](shots/gallery-dark.png) |
 
-- **The workers:** a Claude hook on the Artifact tool. Each time a worker publishes a page, the hook records it in
-  the catalog with its link, title, local file, the worker, the floor and the chat's prompts, then asks the worker to
+- **The workers:** a Claude hook on the Artifact tool. Each time a worker publishes a page, the hook records it with
+  its link, title, local page, the worker, the floor and the chat's prompts, keeps the page, and asks the worker to
   write the creation context while it still holds it. Two skills ship with it: `artifacts:import` and
   `artifacts:work`. What `tower whoami` shows:
 
@@ -25,45 +26,62 @@ worker can modify or clone it without starting over. The ones you pin stay on to
   artifacts  ·  claude.ai artifacts catalog: each one you publish is recorded; write its context when asked (`tower x artifacts context`). `tower kept artifacts` lists them, `tower read <tag>` one.
   ```
 
-- **The CLI:** `tower x artifacts desktop | add | context | pin | unpin`, and `tower kept artifacts` / `tower read
-  <tag>` for the entries, which live in a tower-wide collection.
+- **The CLI:** `tower x artifacts desktop | add | page | context | pin | unpin`, and `tower kept artifacts` /
+  `tower read <tag>` for the entries. A kept page is a file a worker can `tower show`.
 
 Tower 3D and The Week draw nothing of it.
 
 ## Add it
 
+Clone this repo anywhere, then name its folder in the config:
+
 ```json
-{ "extensions": { "artifacts": { "path": "/path/to/tower/examples/extensions/artifacts" } } }
+{ "extensions": { "artifacts": { "path": "/path/to/tower-artifacts" } } }
 ```
+
+**First load.** The first time the tower runs the extension, it imports Claude Desktop's Cowork artifacts on this
+machine. It also hires one worker, on the `floor` setting's floor or the board's first, to import your claude.ai
+account. Only an interactive Claude session has the Artifact tool, and only that tool reaches claude.ai. The worker
+adds every artifact and keeps its page and a summary of it. That's one Artifact read per artifact, so a large account
+takes a while and uses tokens. The hire is logged in the extension's `loads` stream, so it happens once. Later, the
+gallery's **Refresh from Claude Desktop** and **Import my claude.ai account** do it again.
 
 The hook and skills reach sessions that start after the extension is added; a running worker doesn't get them.
 
 ## What it needs from you
 
-- `desktop`: Claude Desktop's data folder, `~/Library/Application Support/Claude` by default. **Import from Claude
-  Desktop** (or `tower x artifacts desktop`) reads the Cowork `artifacts.json` files there, plus the local chat each
-  artifact came from: its title, its transcript and its prompts.
-- The claude.ai gallery is reachable only through Claude's Artifact tool, so a worker imports it. Ask one to
-  "import my artifacts" and the `artifacts:import` skill lists the gallery, adds every artifact, then writes the
-  summaries.
+- `desktop`: Claude Desktop's data folder, `~/Library/Application Support/Claude` by default, where its Cowork
+  `artifacts.json` files and the chats that made each artifact are kept.
+- `floor` (optional): the floor the first load hires its import worker on.
 
 ## How it works
 
-- **Entries** are markdown files in the tower-wide `artifacts` collection, named by the artifact's id, so one artifact
-  is one entry whoever records it. Each has a `# Title`, a JSON header (`url`, `source`, dates, `pinned`, `callsign`,
-  `project`, `file`, `chat`, `transcript`), then `## Summary` (written by a worker) and `## Prompts` (taken from the
-  chat). Re-recording or re-importing an entry refreshes it and keeps its pin and its summary. A later change by
-  another worker keeps the original chat's prompts.
-- **Server** (`server.ts`): the verbs that write entries. It reads only local files, never the network.
+- **Entries** are files in the tower-wide `artifacts` collection, named by the artifact's id, so one artifact is one
+  entry whoever records it. `<id>.md` holds a `# Title`, a JSON header (`url`, `source`, dates, `pinned`,
+  `callsign`, `project`, `file`, `chat`, `transcript`), then `## Summary` (written by a worker) and `## Prompts`
+  (taken from the chat). `<id>.html` beside it is the page. Recording or importing again refreshes an entry and keeps
+  its pin and summary. A later change by another worker keeps the original chat's prompts.
+- **Server** (`server.ts`): the verbs that write entries, the `page/<id>` read that serves a kept page (`serves:
+  "file"`), and the first load. It reads only local files, never the network.
 - **Plugin**: `hooks/record.mjs` passes each Artifact publish (never a read, a list or an asset upload) to
   `tower x artifacts record` and hands its answer back to the worker as context.
-- **Client**: `gallery.ts` (the view), `commands.ts` (opens it) and `artifact.ts`, the entry format, which the server
-  shares.
+- **Client**: `gallery.ts` (the view), `tab.ts`, `commands.ts` (the palette's entry) and `artifact.ts` (the entry
+  format, which the server shares).
+- **The tab** is a view in the page's sidebar strip (`board.strip`) that draws nothing there. It places a button of
+  its own after the page's side tabs, which it finds by their `data-side-view`, because the tower page has no region
+  for extensions there. It holds the strip, which shows one view at a time. If the page changes that markup, the tab
+  stops appearing and the gallery stays in the palette.
 
 **Where the context comes from:** a worker's chat and a local Cowork chat are on this machine, so their prompts are
-read directly and the worker writes the summary. A Cowork artifact made in a cloud session, and an artifact from a
-claude.ai chat, have no transcript here: their summary is written from the page itself.
+read directly and a worker writes the summary. A Cowork artifact made in a cloud session, and one from a claude.ai
+chat, have no transcript here, so their summary is written from the page.
+
+## Develop
+
+`npm install`, then `npm run types` (writes `.tower/`, the tower's library declarations), `npm run typecheck` and
+`npm run check` (the manifest, as the tower loads it).
 
 ## Pictures
 
-`npm run tool:extension-shots -- examples/extensions/artifacts`, from the made-up entries in `shots/seed/`.
+`npm run tool:extension-shots -- /path/to/tower-artifacts` from a tower checkout, using the made-up entries in
+`shots/seed/`.

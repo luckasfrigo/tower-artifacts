@@ -3,10 +3,16 @@
   "version": "1.0",
   "title": "Artifacts",
   "description": "A catalog of your claude.ai artifacts: those your tower workers publish, recorded as they do, and those you import from Claude Desktop's Cowork and the claude.ai gallery. Each keeps its creation context, so any worker can modify or clone one without starting over, and the ones you pin stay on top.",
-  "requires": { "tower": "2.13" },
+  "requires": {
+    "tower": "2.13"
+  },
   "server": "server.ts",
   "client": "client",
-  "runtimes": { "claude": { "plugins": "plugin" } },
+  "runtimes": {
+    "claude": {
+      "plugins": "plugin"
+    }
+  },
   "settings": {
     "type": "object",
     "additionalProperties": false,
@@ -15,6 +21,10 @@
         "type": "string",
         "default": "~/Library/Application Support/Claude",
         "description": "Claude Desktop's data folder, where `desktop` finds its Cowork artifacts and the chats that made them."
+      },
+      "floor": {
+        "type": "string",
+        "description": "The floor the first load hires its account import on, by id; the board's first floor when left out."
       }
     }
   },
@@ -28,87 +38,430 @@
   "verbs": {
     "record": {
       "description": "Records an Artifact publish a worker's PostToolUse hook saw: the page's link, title and file, the worker and floor, and the chat's prompts. The extension's Claude hook calls it; a worker never needs to.",
-      "input": { "type": "object", "additionalProperties": false, "required": ["payload"], "properties": { "payload": { "type": "string", "description": "The PostToolUse hook's JSON" } } },
-      "reply": { "type": "object", "required": ["id", "tag", "isNew", "said"], "properties": { "id": { "type": "string" }, "tag": { "type": "string" }, "isNew": { "type": "boolean" }, "said": { "type": "string" } } },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "payload"
+        ],
+        "properties": {
+          "payload": {
+            "type": "string",
+            "description": "The PostToolUse hook's JSON"
+          }
+        }
+      },
+      "reply": {
+        "type": "object",
+        "required": [
+          "id",
+          "tag",
+          "isNew",
+          "said"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "isNew": {
+            "type": "boolean"
+          },
+          "said": {
+            "type": "string"
+          }
+        }
+      },
       "scope": "system",
-      "cli": { "stdin": "payload", "print": "said" }
+      "cli": {
+        "stdin": "payload",
+        "print": "said"
+      }
     },
     "add": {
       "description": "Adds or refreshes one artifact found in the claude.ai gallery (the Artifact tool's list), its summary on stdin when you have one.",
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["url", "title"],
+        "required": [
+          "url",
+          "title"
+        ],
         "properties": {
-          "url": { "type": "string", "pattern": "^https://claude\\.ai/(code/)?artifact/[A-Za-z0-9_-]+$" },
-          "title": { "type": "string", "minLength": 1 },
-          "created": { "type": "string", "description": "ISO date" },
-          "updated": { "type": "string", "description": "ISO date" },
-          "description": { "type": "string" },
-          "summary": { "type": "string" }
+          "url": {
+            "type": "string",
+            "pattern": "^https://claude\\.ai/(code/)?artifact/[A-Za-z0-9_-]+$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "created": {
+            "type": "string",
+            "description": "ISO date"
+          },
+          "updated": {
+            "type": "string",
+            "description": "ISO date"
+          },
+          "description": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
         }
       },
-      "reply": { "type": "object", "required": ["id", "tag", "isNew", "said"], "properties": { "id": { "type": "string" }, "tag": { "type": "string" }, "isNew": { "type": "boolean" }, "said": { "type": "string" } } },
+      "reply": {
+        "type": "object",
+        "required": [
+          "id",
+          "tag",
+          "isNew",
+          "said"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "isNew": {
+            "type": "boolean"
+          },
+          "said": {
+            "type": "string"
+          }
+        }
+      },
       "scope": "system",
-      "cli": { "stdin": "summary", "print": "said", "usage": "add --url <link> --title <title> [--updated <iso>] [--description <line>] [<<'EOF' summary EOF]" }
+      "cli": {
+        "stdin": "summary",
+        "print": "said",
+        "usage": "add --url <link> --title <title> [--updated <iso>] [--description <line>] [<<'EOF' summary EOF]"
+      }
     },
     "desktop": {
       "description": "Imports Claude Desktop's Cowork artifacts from this machine, each with the chat that made it and its prompts; refreshes those already in. Keeps pins and summaries.",
-      "input": { "type": "object", "additionalProperties": false, "properties": {} },
-      "reply": { "type": "object", "required": ["ids", "added", "said"], "properties": { "ids": { "type": "array", "items": { "type": "string" } }, "added": { "type": "integer" }, "said": { "type": "string" } } },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "reply": {
+        "type": "object",
+        "required": [
+          "ids",
+          "added",
+          "said"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "added": {
+            "type": "integer"
+          },
+          "said": {
+            "type": "string"
+          }
+        }
+      },
       "scope": "system",
-      "cli": { "print": "said" },
-      "words": { "label": "Import from Claude Desktop", "hint": "reads Cowork's artifacts and the chats that made them" }
+      "cli": {
+        "print": "said"
+      },
+      "words": {
+        "label": "Import from Claude Desktop",
+        "hint": "reads Cowork's artifacts and the chats that made them"
+      }
+    },
+    "page": {
+      "description": "Keeps an artifact's page beside its entry, from a saved html file (the Artifact tool's read), so the gallery shows it and `tower show` can.",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact",
+          "file"
+        ],
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "Its link, or its entry's id"
+          },
+          "file": {
+            "type": "string",
+            "description": "An absolute path to the page's html"
+          }
+        }
+      },
+      "reply": {
+        "type": "object",
+        "required": [
+          "id",
+          "tag",
+          "said"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "said": {
+            "type": "string"
+          }
+        }
+      },
+      "scope": "system",
+      "cli": {
+        "positional": [
+          "artifact"
+        ],
+        "print": "said",
+        "usage": "page <id or link> --file <saved.html>"
+      }
     },
     "context": {
       "description": "Writes an artifact's creation context, its `## Summary`, from stdin.",
       "input": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["artifact", "summary"],
-        "properties": { "artifact": { "type": "string", "description": "Its link, or its entry's id" }, "summary": { "type": "string" } }
+        "required": [
+          "artifact",
+          "summary"
+        ],
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "Its link, or its entry's id"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
       },
-      "reply": { "type": "object", "required": ["id", "tag", "said"], "properties": { "id": { "type": "string" }, "tag": { "type": "string" }, "said": { "type": "string" } } },
+      "reply": {
+        "type": "object",
+        "required": [
+          "id",
+          "tag",
+          "said"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "said": {
+            "type": "string"
+          }
+        }
+      },
       "scope": "system",
-      "cli": { "positional": ["artifact"], "stdin": "summary", "print": "said" }
+      "cli": {
+        "positional": [
+          "artifact"
+        ],
+        "stdin": "summary",
+        "print": "said"
+      }
     },
     "pin": {
       "description": "Pins an artifact: the gallery lists it on top.",
-      "input": { "type": "object", "additionalProperties": false, "required": ["artifact"], "properties": { "artifact": { "type": "string", "description": "Its link, or its entry's id" } } },
-      "reply": { "type": "object", "required": ["id", "tag", "pinned", "said"], "properties": { "id": { "type": "string" }, "tag": { "type": "string" }, "pinned": { "type": "boolean" }, "said": { "type": "string" } } },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact"
+        ],
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "Its link, or its entry's id"
+          }
+        }
+      },
+      "reply": {
+        "type": "object",
+        "required": [
+          "id",
+          "tag",
+          "pinned",
+          "said"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "said": {
+            "type": "string"
+          }
+        }
+      },
       "scope": "system",
-      "cli": { "positional": ["artifact"], "print": "said" },
-      "words": { "label": "Pin", "hint": "keep it on top of the gallery" }
+      "cli": {
+        "positional": [
+          "artifact"
+        ],
+        "print": "said"
+      },
+      "words": {
+        "label": "Pin",
+        "hint": "keep it on top of the gallery"
+      }
     },
     "unpin": {
       "description": "Unpins an artifact.",
-      "input": { "type": "object", "additionalProperties": false, "required": ["artifact"], "properties": { "artifact": { "type": "string", "description": "Its link, or its entry's id" } } },
-      "reply": { "type": "object", "required": ["id", "tag", "pinned", "said"], "properties": { "id": { "type": "string" }, "tag": { "type": "string" }, "pinned": { "type": "boolean" }, "said": { "type": "string" } } },
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "artifact"
+        ],
+        "properties": {
+          "artifact": {
+            "type": "string",
+            "description": "Its link, or its entry's id"
+          }
+        }
+      },
+      "reply": {
+        "type": "object",
+        "required": [
+          "id",
+          "tag",
+          "pinned",
+          "said"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tag": {
+            "type": "string"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "said": {
+            "type": "string"
+          }
+        }
+      },
       "scope": "system",
-      "cli": { "positional": ["artifact"], "print": "said" },
-      "words": { "label": "Unpin", "hint": "back among the rest" }
+      "cli": {
+        "positional": [
+          "artifact"
+        ],
+        "print": "said"
+      },
+      "words": {
+        "label": "Unpin",
+        "hint": "back among the rest"
+      }
+    }
+  },
+  "reads": {
+    "page/<id>": {
+      "description": "An artifact's kept page, served as the tower serves a file a worker shows: its own origin, the sandbox headers. `<id>` is its entry's id, with or without `.md`.",
+      "serves": "file",
+      "scope": "system"
     }
   },
   "commands": {
     "open": {
       "module": "commands.js",
       "export": "openGallery",
-      "on": ["board"],
-      "words": { "label": "Artifacts", "hint": "your claude.ai artifacts, pinned ones first, each with how it was made", "icon": "page" }
+      "words": {
+        "label": "Artifacts",
+        "hint": "your claude.ai artifacts, pinned ones first, each with how it was made"
+      }
     }
   },
   "views": {
     "gallery": {
       "module": "gallery.js",
       "export": "mount",
-      "on": ["board"],
-      "scales": ["pane"],
-      "needs": ["display", "toast"],
-      "words": { "label": "Artifacts", "hint": "your claude.ai artifacts, pinned ones first, each with how it was made" }
+      "on": [
+        "board"
+      ],
+      "scales": [
+        "pane"
+      ],
+      "needs": [
+        "display",
+        "toast"
+      ],
+      "words": {
+        "label": "Artifacts",
+        "hint": "your claude.ai artifacts, pinned ones first, each with how it was made"
+      }
+    },
+    "tab": {
+      "module": "tab.js",
+      "export": "mount",
+      "on": [
+        "board"
+      ],
+      "scales": [
+        "row"
+      ],
+      "needs": [
+        "display",
+        "location"
+      ],
+      "words": {
+        "label": "Artifacts tab",
+        "hint": "a tab after the sidebar's Floors and Stats that opens the artifacts gallery"
+      }
     }
   },
   "guidance": {
     "brief": "claude.ai artifacts catalog: each one you publish is recorded; write its context when asked (`tower x artifacts context`). `tower kept artifacts` lists them, `tower read <tag>` one.",
-    "full": "Every artifact a worker publishes with the Artifact tool is recorded in the tower-wide `artifacts` collection by this extension's hook, which then asks you to write its creation context. Do it right away, while you hold it: `tower x artifacts context <id> <<'EOF'` … `EOF`, saying what it is for, who asked and why, the data and sources it draws on, the choices made and what was ruled out, and how it is built. Another worker will modify or clone it from that alone.\n\nTo work on an existing artifact, read its entry first (`tower kept artifacts`, then `tower read <tag>`), then the page with the Artifact tool's `read`; publish to its `url` to change it, without one to make a new one. To import: `tower x artifacts desktop` reads Claude Desktop's Cowork artifacts on this machine; for the claude.ai gallery, list it with the Artifact tool and add each with `tower x artifacts add --url <link> --title <title> --updated <iso>`. `tower x artifacts pin <id>` and `unpin <id>` keep the important ones on top. The `artifacts:import` and `artifacts:work` skills hold the steps."
+    "full": "Every artifact a worker publishes with the Artifact tool is recorded in the tower-wide `artifacts` collection by this extension's hook, which then asks you to write its creation context. Do it right away, while you hold it: `tower x artifacts context <id> <<'EOF'` … `EOF`, saying what it is for, who asked and why, the data and sources it draws on, the choices made and what was ruled out, and how it is built. Another worker will modify or clone it from that alone.\n\nTo work on an existing artifact, read its entry first (`tower kept artifacts`, then `tower read <tag>`), then the page with the Artifact tool's `read`; publish to its `url` to change it, without one to make a new one. To keep a page, so the gallery shows it and `tower show` can: `tower x artifacts page <id> --file <saved.html>`. To import: `tower x artifacts desktop` reads Claude Desktop's Cowork artifacts on this machine; for the claude.ai gallery, list it with the Artifact tool and add each with `tower x artifacts add --url <link> --title <title> --updated <iso>`. `tower x artifacts pin <id>` and `unpin <id>` keep the important ones on top. The `artifacts:import` and `artifacts:work` skills hold the steps."
+  },
+  "streams": {
+    "loads": {
+      "scope": "system",
+      "description": "The first load: the worker it hired to import the claude.ai account, once.",
+      "facts": {
+        "h": {
+          "description": "The first load hired a worker to import the claude.ai account.",
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "session",
+              "project"
+            ],
+            "properties": {
+              "session": {
+                "type": "string"
+              },
+              "project": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }

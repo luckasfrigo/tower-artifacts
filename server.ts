@@ -2,8 +2,8 @@ import { readdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Card } from '/lib/board.js'
-import { apiError, type CallCtx, type Start } from '/lib/extension.js'
-import { type Artifact, ARTIFACTS, artifactOf, formatArtifact, type Header, idOfUrl, isArtifact, TOWER_WIDE, urlIn } from './client/artifact.ts'
+import { apiError, type CallCtx, isApiError, type Start, type StreamFact } from '/lib/extension.js'
+import { type Artifact, ARTIFACTS, IMPORT_PROMPT, pageOf, artifactOf, formatArtifact, type Header, idOfUrl, isArtifact, TOWER_WIDE, urlIn } from './client/artifact.ts'
 
 /**
  * The artifacts catalog's writer: every verb that changes an entry of the tower-wide `artifacts` collection. `record`
@@ -13,7 +13,11 @@ import { type Artifact, ARTIFACTS, artifactOf, formatArtifact, type Header, idOf
  * claude.ai knows, a worker brings with its Artifact tool.
  */
 
-type Settings = { desktop: string }
+type Settings = { desktop: string; floor?: string }
+
+/** What the `loads` stream folds to: whether the first load hired its account import, and whom. */
+type Loads = { hired?: { session: string; project: string; at: number } }
+
 
 /** How many of a chat's prompts an entry keeps, the latest, and how much of each. */
 const PROMPTS = 8
@@ -145,7 +149,89 @@ const start: Start = (ctx) => {
       return item ? { id: item.id, tag: item.tag, pinned, said: `${pinned ? 'Pinned' : 'Unpinned'} ${item.tag}` } : notFound(artifact)
     })
 
+  /** The collection's folder on disk, as the board says. */
+  const dirOf = () => {
+    const c = ctx.board().collections.find((c) => c.id === ARTIFACTS)
+    if (!c) throw new Error(`the board holds no ${ARTIFACTS} collection`)
+    return c.dir
+  }
+
+  /** Keeps `file` as the entry's page, refusing what isn't an html page. */
+  const keepPage = async (entry: string, file: string) => {
+    const html = await readFile(file, 'utf8')
+    if (!/^\s*<(!doctype|html|head|body|meta|title|style|script|div|main|svg)/i.test(html))
+      throw Object.assign(new Error(`${file} is not an html page: keep the page the Artifact tool's read gave, saved as a file`), { code: 'invalid' })
+    return ctx.collections.put(TOWER_WIDE, ARTIFACTS, pageOf(entry), html)
+  }
+
+  /** Every Cowork artifact in Claude Desktop's data, into the catalog: new ones added, those in refreshed. */
+  const importDesktop = async () => {
+    const root = expand(settings.desktop)
+    const dirs = await coworkDirs(root)
+    const ids: string[] = []
+    let added = 0
+    for (const dir of dirs) {
+      const list: Cowork[] = JSON.parse(await readFile(join(dir, 'artifacts.json'), 'utf8'))
+      for (const a of list) {
+        const url = a.sharedArtifactUuid ? `https://claude.ai/code/artifact/${a.sharedArtifactUuid}` : undefined
+        const id = url ? idOfUrl(url) : `cowork-${a.id}.md`
+        const session = a.createdBySessionId
+        const { meta, transcript } = session?.startsWith('local_') ? await coworkChat(dir, session) : { meta: {} as CoworkSession, transcript: undefined }
+        const prompts = transcript ? await promptsOf(transcript) : meta.initialMessage ? [meta.initialMessage.slice(0, PROMPT_CHARS)] : []
+        const header: Omit<Header, 'pinned'> = {
+          url,
+          source: 'cowork',
+          created: iso(a.createdAt),
+          updated: iso(a.updatedAt ?? a.createdAt),
+          description: a.description,
+          chat: meta.title ?? (session ? `Cowork session ${session}` : undefined),
+          transcript,
+        }
+        const { isNew } = await upsert(id, { ...header, title: a.name, prompts })
+        ids.push(id)
+        if (isNew) added++
+      }
+    }
+    return { root, dirs, ids, added }
+  }
+
+  /**
+   * The first load: once, as the tower first runs the extension, everything there is to load. Claude Desktop's Cowork
+   * artifacts are on this machine and read here; the claude.ai account is reached only through Claude's Artifact tool,
+   * which only an interactive session has, so a worker is hired to import it, on the `floor` setting's floor or the
+   * board's first. That hire is the stream's fact, so a restart doesn't hire again. Tried each tick until a floor is
+   * on the board to hire on.
+   */
+  const firstLoad = async () => {
+    if ((ctx.own.streams('loads') as Loads).hired || loading) return
+    const floors = ctx.board().floors
+    const project = floors.find((f) => f.id === settings.floor)?.id ?? floors[0]?.id
+    if (!project) return
+    loading = true
+    try {
+      const desktop = await importDesktop()
+      ctx.log(`first load: ${desktop.ids.length} Cowork artifacts from ${desktop.root}, ${desktop.added} new`)
+      const reply = (await ctx.call('tower/spawn', { project, runtime: 'claude', prompt: IMPORT_PROMPT })) as { id: string } | ReturnType<typeof apiError>
+      if (isApiError(reply)) return ctx.log(`first load: the account import couldn't be hired on ${project}: ${reply.message}`)
+      await ctx.streams.append('loads', {}, 'h', { session: reply.id, project })
+      ctx.log(`first load: hired ${reply.id} on ${project} to import the claude.ai account`)
+    } finally {
+      loading = false
+    }
+  }
+  let loading = false
+  ctx.every(5_000, firstLoad)
+
   return {
+    reduce: { loads: { init: {}, step: (_: Loads, [at, , fact]: StreamFact<'h', { session: string; project: string }>): Loads => ({ hired: { ...fact, at } }) } },
+    reads: {
+      'page/<id>': ({ params }: { params: Record<string, string> }) => {
+        const page = pageOf(idOf(params.id!))
+        if (!ctx.collections.list(TOWER_WIDE, ARTIFACTS).some((i) => i.id === page))
+          return apiError('not_found', `${params.id} has no page kept: a worker keeps it with \`tower x artifacts page ${params.id} --file <saved.html>\``)
+        return { file: join(dirOf(), page) }
+      },
+    },
     verbs: {
       record: async ({ payload }: { payload: string }, c: CallCtx) =>
         said(async () => {
@@ -185,6 +271,7 @@ const start: Start = (ctx) => {
           const ask = was?.summary
             ? `If this change alters what it is for, update its summary: tower x artifacts context ${item.id} <<'EOF' … EOF`
             : `Write its creation context now, while you hold it, so another worker can modify or clone it without redoing it: tower x artifacts context ${item.id} <<'EOF' … EOF (what it is for, who asked and why, the data and sources it draws on, the choices made and what was ruled out, and how it is built).`
+          if (file) await keepPage(item.id, file)
           return { id: item.id, tag: item.tag, isNew, said: `${isNew ? 'Recorded' : 'Updated'} the artifact “${title}” in the catalog as ${item.tag}. ${ask}` }
         }),
 
@@ -206,34 +293,17 @@ const start: Start = (ctx) => {
 
       desktop: async () =>
         said(async () => {
-          const root = expand(settings.desktop)
-          const dirs = await coworkDirs(root)
+          const { root, dirs, ids, added } = await importDesktop()
           if (!dirs.length) return apiError('not_found', `No Claude Desktop Cowork artifacts under ${root}: set the extension's \`desktop\` setting to Claude Desktop's data folder`)
-          const ids: string[] = []
-          let added = 0
-          for (const dir of dirs) {
-            const list: Cowork[] = JSON.parse(await readFile(join(dir, 'artifacts.json'), 'utf8'))
-            for (const a of list) {
-              const url = a.sharedArtifactUuid ? `https://claude.ai/code/artifact/${a.sharedArtifactUuid}` : undefined
-              const id = url ? idOfUrl(url) : `cowork-${a.id}.md`
-              const session = a.createdBySessionId
-              const { meta, transcript } = session?.startsWith('local_') ? await coworkChat(dir, session) : { meta: {} as CoworkSession, transcript: undefined }
-              const prompts = transcript ? await promptsOf(transcript) : meta.initialMessage ? [meta.initialMessage.slice(0, PROMPT_CHARS)] : []
-              const header: Omit<Header, 'pinned'> = {
-                url,
-                source: 'cowork',
-                created: iso(a.createdAt),
-                updated: iso(a.updatedAt ?? a.createdAt),
-                description: a.description,
-                chat: meta.title ?? (session ? `Cowork session ${session}` : undefined),
-                transcript,
-              }
-              const { isNew } = await upsert(id, { ...header, title: a.name, prompts })
-              ids.push(id)
-              if (isNew) added++
-            }
-          }
           return { ids, added, said: `Read ${ids.length} Cowork artifacts from Claude Desktop: ${added} new, ${ids.length - added} refreshed` }
+        }),
+
+      page: async ({ artifact, file }: { artifact: string; file: string }) =>
+        said(async () => {
+          const id = idOf(artifact)
+          if (!(await existing(id))) return notFound(artifact)
+          const item = await keepPage(id, file)
+          return { id: item.id, tag: item.tag, said: `Kept the page of ${id} as ${item.tag}: \`tower show ${join(dirOf(), item.id)}\` shows it beside you` }
         }),
 
       context: async ({ artifact, summary }: { artifact: string; summary: string }) =>
