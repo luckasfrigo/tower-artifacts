@@ -1,0 +1,1 @@
+{ "name": "artifacts", "version": "1.0.0", "description": "Records every Artifact a worker publishes in the tower's artifacts catalog, and teaches importing and working on artifacts." }

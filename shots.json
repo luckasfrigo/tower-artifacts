@@ -1,0 +1,19 @@
+{
+  "workers": 1,
+  "seed": [
+    "tower keep artifacts < $EXT/shots/seed/churn-dashboard.md",
+    "tower keep artifacts < $EXT/shots/seed/pricing-explainer.md",
+    "tower keep artifacts < $EXT/shots/seed/roadmap.md"
+  ],
+  "scenes": [
+    {
+      "name": "gallery",
+      "size": "1280x800",
+      "open": "#v/artifacts/gallery/board",
+      "steps": [{ "until": "[data-view=\"artifacts/gallery\"] .reader h1", "text": "Churn Signals Dashboard" }],
+      "crop": "[data-view=\"artifacts/gallery\"]",
+      "pad": 0
+    }
+  ],
+  "text": [{ "name": "whoami", "run": "tower whoami | grep artifacts" }]
+}

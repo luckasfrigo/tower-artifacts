@@ -1,0 +1,2 @@
+  artifacts  ·  Artifacts  ·  One markdown file per claude.ai artifact: a `# Title` line, a ```json header (url, source, dates, pinned, who made it and in which chat), then `## Summary`, its creation context, and `## Prompts`, the prompts that made it. Written through `tower x artifacts`.
+  artifacts  ·  claude.ai artifacts catalog: each one you publish is recorded; write its context when asked (`tower x artifacts context`). `tower kept artifacts` lists them, `tower read <tag>` one.

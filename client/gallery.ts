@@ -1,0 +1,218 @@
+import type { Board } from '/lib/board.js'
+import { markdownCss, markdownHtml } from '/lib/markdown.js'
+import { closeHtml, copyTelling, itemPath, type Mount, paintOnce, viewCss } from '/lib/view.js'
+import { esc } from '/lib/words.js'
+import { type Artifact, ARTIFACTS, type Broken, byUpdated, clonePrompt, isArtifact, matches, modifyPrompt, TOWER_WIDE, artifactOf } from './artifact.ts'
+
+/**
+ * `artifacts/gallery`, on the board: every entry of the tower-wide `artifacts` collection, pinned ones first, then the
+ * rest newest first, searched by title, description, summary and who made it. The one picked is drawn beside the list
+ * with its creation context, and offers to open it on claude.ai, pin it, or hire a worker to modify or clone it.
+ */
+
+const ID = 'artifacts/gallery'
+
+const STYLE = viewCss(
+  ID,
+  `& .gallery { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(220px, 22em) 1fr; gap: var(--sp-l); }
+  & .index, & .reader { min-height: 0; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  & .index { display: flex; flex-direction: column; gap: var(--sp-m); padding: var(--sp-l); }
+  & .index input { padding: var(--sp-s) var(--sp-m); font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+  & .index input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  & .index h3 { margin: var(--sp-s) 0 0; font: 700 var(--fs-s)/1.3 var(--display); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  & .index ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+  & .index li { display: flex; align-items: center; gap: var(--sp-xs); }
+  & .index li > button.pick { flex: 1; min-width: 0; text-align: left; padding: var(--sp-xs) var(--sp-s); border: 0; border-radius: var(--radius-s); background: none; color: var(--ink); font: inherit; cursor: pointer; display: flex; flex-direction: column; }
+  & .index li > button.pick:hover { background: color-mix(in oklab, var(--accent) 10%, transparent); }
+  & .index li > button.pick[aria-current="true"] { background: color-mix(in oklab, var(--accent) 18%, transparent); }
+  & .index li > button.pick[aria-current="true"] .t { font-weight: 700; }
+  & .index .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  & .index .m { color: var(--muted); font-size: var(--fs-s); }
+  & .star { border: 0; background: none; cursor: pointer; color: var(--faint); font-size: 1.1em; padding: var(--sp-xs); border-radius: var(--radius-s); line-height: 1; }
+  & .star:hover { color: var(--ink); background: color-mix(in oklab, var(--accent) 10%, transparent); }
+  & .star[aria-pressed="true"] { color: var(--accent); }
+  & .index .none, & .index .broken { color: var(--muted); font-size: var(--fs-s); margin: 0; }
+  & .reader { padding: var(--sp-xl) var(--sp-2xl); display: flex; flex-direction: column; gap: var(--sp-l); }
+  & .reader h1 { margin: 0; font: 700 var(--fs-xl)/1.25 var(--display); }
+  & .reader .desc { margin: 0; color: var(--muted); }
+  & .reader .acts { display: flex; flex-wrap: wrap; gap: var(--sp-s); align-items: center; }
+  & .reader .acts a, & .reader .acts button { min-height: var(--control); padding: 0 var(--sp-l); display: inline-flex; align-items: center; text-decoration: none; }
+  & .reader .acts select { min-height: var(--control); font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0 var(--sp-s); }
+  & .reader dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: var(--sp-xs) var(--sp-l); font-size: var(--fs-s); }
+  & .reader dt { color: var(--muted); }
+  & .reader dd { margin: 0; overflow-wrap: anywhere; }
+  & .reader h2 { margin: var(--sp-m) 0 0; font: 700 var(--fs-s)/1.3 var(--display); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  & .reader .missing { color: var(--muted); font-style: italic; margin: 0; }
+  & .reader blockquote { margin: 0 0 var(--sp-m); padding: var(--sp-s) var(--sp-l); border-left: 3px solid var(--line-strong); color: var(--ink); white-space: pre-wrap; }
+  & .reader .empty { color: var(--muted); }
+  @media (max-width: 720px) { & .gallery { grid-template-columns: 1fr; grid-template-rows: minmax(10em, 40%) 1fr; } & .reader { padding: var(--sp-l); } }`,
+)
+
+const SOURCE_WORDS: Record<Artifact['source'], string> = { tower: 'tower', cowork: 'Claude Desktop · Cowork', 'claude.ai': 'claude.ai' }
+
+/** An entry as of its version, read again when the board shows a newer one. */
+type Read = { modifiedAt: number; artifact: Artifact | Broken }
+
+const pathOf = (id: string) => itemPath(TOWER_WIDE, ARTIFACTS, id)
+
+const day = (iso: string | undefined) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '')
+
+export const mount: Mount = (host, { tower, board: first, kit }) => {
+  let board: Board = first
+  let query = ''
+  let open: string | undefined
+  /** The floor a worker is hired on, as last picked. */
+  let floorPick: string | undefined
+  const reads = new Map<string, Read>()
+  const reading = new Map<string, number>()
+
+  host.innerHTML = `<style>${STYLE}${markdownCss}</style>
+  <div class="shelf-head"><span class="label">Artifacts</span><span class="dim">pinned first, each with how it was made</span>
+    <button class="secondary" data-import>Import from Claude Desktop</button><span class="actions"></span></div>
+  <div class="gallery"><nav class="index" aria-label="artifacts"><input type="search" placeholder="Search artifacts" aria-label="search artifacts"><div class="list"></div></nav>
+    <article class="reader" aria-live="polite"></article></div>`
+  const $ = <T extends Element>(selector: string) => host.querySelector<T>(selector)!
+
+  const collection = () => board.collections.find((c) => c.id === ARTIFACTS)
+  const files = () => (collection()?.items ?? []).filter((i) => i.id.endsWith('.md'))
+  const tagOf = (id: string) => collection()?.items.find((i) => i.id === id)?.tag ?? id
+
+  const readAll = async () => {
+    const stale = files().filter((i) => reads.get(i.id)?.modifiedAt !== i.modifiedAt && reading.get(i.id) !== i.modifiedAt)
+    if (!stale.length) return
+    await Promise.all(
+      stale.map(async (i) => {
+        reading.set(i.id, i.modifiedAt)
+        const artifact = await tower.text(pathOf(i.id)).then(
+          (text) => artifactOf(i.id, text),
+          (err: Error) => ({ id: i.id, why: err.message }),
+        )
+        if (reading.get(i.id) !== i.modifiedAt) return
+        reading.delete(i.id)
+        reads.set(i.id, { modifiedAt: i.modifiedAt, artifact })
+      }),
+    )
+    draw()
+  }
+
+  const rowHtml = (a: Artifact) =>
+    `<li><button class="star" data-pin="${esc(a.id)}" aria-pressed="${!!a.pinned}" aria-label="${a.pinned ? 'unpin' : 'pin'} ${esc(a.title)}" title="${a.pinned ? 'Unpin' : 'Pin'}">${a.pinned ? '★' : '☆'}</button>
+      <button class="pick" data-artifact="${esc(a.id)}" aria-current="${a.id === open}"><span class="t">${esc(a.title)}</span><span class="m">${esc([SOURCE_WORDS[a.source], a.callsign, day(a.updated ?? a.created)].filter(Boolean).join(' · '))}</span></button></li>`
+
+  const listHtml = (all: Artifact[], broken: Broken[]) => {
+    const shown = all.filter((a) => matches(a, query))
+    const pinned = shown.filter((a) => a.pinned)
+    const rest = shown.filter((a) => !a.pinned)
+    const group = (title: string, as: Artifact[]) => (as.length ? `<h3>${title}</h3><ul>${as.map(rowHtml).join('')}</ul>` : '')
+    const none = !shown.length
+      ? `<p class="none">${all.length ? `No artifact matches “${esc(query)}”.` : files().length ? 'Reading the catalog…' : 'No artifacts yet: import them from Claude Desktop, or ask a worker to import your claude.ai gallery.'}</p>`
+      : ''
+    const bad = broken.map((b) => `<p class="broken">${esc(b.id)} is not an artifact entry: ${esc(b.why)}</p>`).join('')
+    return group('Pinned', pinned) + group(pinned.length ? 'All the rest' : 'All', rest) + none + bad
+  }
+
+  const floorsHtml = (a: Artifact) => {
+    const floors = board.floors
+    if (!floors.length) return ''
+    const pick = floors.find((f) => f.id === floorPick)?.id ?? floors.find((f) => f.id === a.project)?.id ?? floors[0]!.id
+    floorPick = pick
+    return `<select data-hire-floor aria-label="floor to hire the worker on">${floors.map((f) => `<option value="${esc(f.id)}"${f.id === pick ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`
+  }
+
+  const readerHtml = (a: Artifact) => {
+    const meta: [string, string][] = [
+      ['Source', SOURCE_WORDS[a.source]],
+      ['Made by', a.callsign ? `${a.callsign}${a.project ? ` on ${a.project}` : ''}` : ''],
+      ['Chat', a.chat ?? ''],
+      ['Created', day(a.created)],
+      ['Updated', day(a.updated)],
+      ['Link', a.url ?? ''],
+      ['Local page', a.file ?? ''],
+      ['Transcript', a.transcript ?? ''],
+      ['Entry', tagOf(a.id)],
+    ]
+    const can = board.floors.length > 0
+    return `<h1>${esc(a.title)}</h1>${a.description ? `<p class="desc">${esc(a.description)}</p>` : ''}
+      <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open on claude.ai</a>` : ''}
+        <button class="secondary" data-pin="${esc(a.id)}">${a.pinned ? 'Unpin' : 'Pin'}</button>
+        ${can ? `${floorsHtml(a)}<button class="secondary" data-work="modify">Modify with a worker</button><button class="secondary" data-work="clone">Clone with a worker</button>` : ''}
+        <button class="secondary" data-copy-tag>Copy entry tag</button></div>
+      <dl>${meta
+        .filter(([, v]) => v)
+        .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`)
+        .join('')}</dl>
+      <h2>Creation context</h2>${a.summary ? `<div class="md">${markdownHtml(a.summary)}</div>` : `<p class="missing">No summary written yet: ask a worker to write one with <code>tower x artifacts context ${esc(a.id)}</code>.</p>`}
+      <h2>Prompts that made it</h2>${a.prompts.length ? a.prompts.map((p) => `<blockquote>${esc(p)}</blockquote>`).join('') : '<p class="missing">The chat that made it is not on this machine.</p>'}`
+  }
+
+  const current = () => {
+    const r = open ? reads.get(open)?.artifact : undefined
+    return r && isArtifact(r) ? r : undefined
+  }
+
+  const draw = () => {
+    const all = files().flatMap((i) => (reads.has(i.id) ? [reads.get(i.id)!.artifact] : []))
+    const artifacts = all.filter(isArtifact).sort(byUpdated)
+    const ordered = [...artifacts.filter((a) => a.pinned), ...artifacts.filter((a) => !a.pinned)]
+    if (!open || !artifacts.some((a) => a.id === open)) open = ordered[0]?.id
+    paintOnce($('.shelf-head .actions'), closeHtml(board.keys))
+    paintOnce($('.list'), listHtml(artifacts, all.filter((a): a is Broken => !isArtifact(a))))
+    const a = current()
+    paintOnce($('.reader'), a ? readerHtml(a) : '<p class="empty">Pick an artifact.</p>')
+  }
+
+  const call = (verb: string, input: unknown, done?: string) =>
+    tower.call(verb, input).then(
+      (reply: { said?: string }) => kit.toast(done ?? reply.said ?? 'Done'),
+      (err: Error) => kit.toast(err.message),
+    )
+
+  $<HTMLInputElement>('input').addEventListener('input', (e) => {
+    query = (e.target as HTMLInputElement).value
+    draw()
+  })
+
+  host.addEventListener('change', (e) => {
+    const select = (e.target as Element).closest<HTMLSelectElement>('[data-hire-floor]')
+    if (select) floorPick = select.value
+  })
+
+  host.addEventListener('click', (e) => {
+    const target = e.target as Element
+    if (target.closest('[data-home]')) return kit.display('board')
+    if (target.closest('[data-import]')) return void call('artifacts/desktop', {})
+    const pin = target.closest<HTMLElement>('[data-pin]')?.dataset.pin
+    if (pin) {
+      const r = reads.get(pin)?.artifact
+      return void call(r && isArtifact(r) && r.pinned ? 'artifacts/unpin' : 'artifacts/pin', { artifact: pin })
+    }
+    const a = current()
+    if (a && target.closest('[data-copy-tag]')) return void copyTelling(tagOf(a.id), 'the entry tag', kit.toast)
+    const work = target.closest<HTMLElement>('[data-work]')?.dataset.work
+    if (a && work && floorPick) {
+      const tag = tagOf(a.id)
+      const prompt = work === 'modify' ? modifyPrompt(a, tag) : clonePrompt(a, tag)
+      return void tower.call('spawn', { project: floorPick, runtime: 'claude', prompt }).then(
+        ({ id }: { id: string }) => kit.display(`card:${id}`),
+        (err: Error) => kit.toast(err.message),
+      )
+    }
+    const id = target.closest<HTMLElement>('[data-artifact]')?.dataset.artifact
+    if (!id) return
+    open = id
+    draw()
+    $('.reader').scrollTop = 0
+  })
+
+  draw()
+  void readAll()
+
+  return {
+    update(next) {
+      board = next
+      draw()
+      void readAll()
+    },
+    close() {},
+  }
+}

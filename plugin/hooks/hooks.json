@@ -1,0 +1,11 @@
+{
+  "description": "Records each Artifact publish in the tower's artifacts catalog and asks the worker for its creation context",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^Artifact$",
+        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/record.mjs\"", "timeout": 30 }]
+      }
+    ]
+  }
+}
