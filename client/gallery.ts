@@ -49,7 +49,10 @@ const STYLE = viewCss(
   & .reader .tabs button { padding: var(--sp-xs) var(--sp-m); border: 1px solid transparent; border-radius: var(--radius); background: none; color: var(--muted); cursor: pointer; }
   & .reader .tabs button:hover { color: var(--ink); }
   & .reader .tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--line-strong); }
-  & .reader.paging { padding-bottom: var(--sp-l); }
+  & .gallery.wide { grid-template-columns: 1fr; } & .gallery.wide .index { display: none; }
+  & .reader .tabs .expand { margin-left: auto; }
+  & .reader.paging { padding: var(--sp-l); gap: var(--sp-m); }
+  & .reader.paging .page { min-height: 0; }
   & .reader .page { flex: 1; min-height: 24em; width: 100%; border: 1px solid var(--line); border-radius: var(--radius-s); background: #fff; }
   & .reader .nopage { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-m); color: var(--muted); }
   @media (max-width: 720px) { & .gallery { grid-template-columns: 1fr; grid-template-rows: minmax(10em, 40%) 1fr; } & .reader { padding: var(--sp-l); } }`,
@@ -70,6 +73,8 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
   let open: string | undefined
   /** The reader's tab the user picked for the artifact open: its page, or how it was made. Unpicked, the page when kept. */
   let tab: 'page' | 'context' | undefined
+  /** Whether the list is put away, the reader taking the whole width. */
+  let wide = false
   /** The floor a worker is hired on, as last picked. */
   let floorPick: string | undefined
   const reads = new Map<string, Read>()
@@ -129,14 +134,32 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     return `<select data-hire-floor aria-label="floor to hire the worker on">${floors.map((f) => `<option value="${esc(f.id)}"${f.id === pick ? ' selected' : ''}>${esc(f.name)}</option>`).join('')}</select>`
   }
 
+  /** The kept page's version, which a new keep changes. */
+  const pageVersion = (a: Artifact) => `${a.id}@${collection()?.items.find((i) => i.id === pageOf(a.id))?.modifiedAt ?? 0}`
+
   /**
-   * The kept page, framed from the extension's `page/<id>` read, which the tower serves as it serves a file a worker
-   * shows (`tower show`): at an origin of its own, under the same sandbox headers. Keyed by the page's version, so a
-   * new one reloads the frame.
+   * A frame for the kept page, filled once painted (`fillPage`): its markup read as the item's text and drawn as the
+   * frame's document, sandboxed without `allow-same-origin`, so its scripts run at an opaque origin and reach neither
+   * the tower page nor its API.
    */
-  const pageHtml = (a: Artifact) => {
-    const v = collection()?.items.find((i) => i.id === pageOf(a.id))?.modifiedAt ?? 0
-    return `<iframe class="page" title="${esc(a.title)}" src="/artifacts/page/${encodeURIComponent(a.id)}?v=${v}"></iframe>`
+  const pageHtml = (a: Artifact) =>
+    `<iframe class="page" title="${esc(a.title)}" data-page="${esc(pageVersion(a))}" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads"></iframe>`
+
+  /** The version each frame holds, so a redraw keeps a frame already filled. */
+  const filled = new WeakMap<HTMLIFrameElement, string>()
+  const fillPage = (a: Artifact) => {
+    const frame = host.querySelector<HTMLIFrameElement>('iframe.page')
+    const version = frame?.dataset.page
+    if (!frame || !version || filled.get(frame) === version) return
+    filled.set(frame, version)
+    void tower.text(pathOf(pageOf(a.id))).then(
+      (html) => {
+        if (filled.get(frame) === version) frame.srcdoc = html
+      },
+      (err: Error) => {
+        if (filled.get(frame) === version) frame.srcdoc = `<p style="font:14px system-ui;color:#555">The kept page can't be read: ${esc(err.message)}</p>`
+      },
+    )
   }
 
   const tabOf = (a: Artifact) => tab ?? (hasPage(a.id) ? 'page' : 'context')
@@ -161,11 +184,11 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     ]
     const can = board.floors.length > 0
     return `<h1>${esc(a.title)}</h1>${a.description ? `<p class="desc">${esc(a.description)}</p>` : ''}
-      <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open on claude.ai</a>` : ''}
+      <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="secondary" href="${esc(a.url)}" target="_blank" rel="noopener" title="open it in your browser, signed in to claude.ai">Open on claude.ai ↗</a>` : ''}
         <button class="secondary" data-pin="${esc(a.id)}">${a.pinned ? 'Unpin' : 'Pin'}</button>
         ${can ? `${floorsHtml(a)}<button class="secondary" data-work="modify">Modify with a worker</button><button class="secondary" data-work="clone">Clone with a worker</button>` : ''}
         <button class="secondary" data-copy-tag>Copy entry tag</button></div>
-      <div class="tabs" role="tablist">${(['page', 'context'] as const).map((t) => `<button class="eyebrow" role="tab" data-tab="${t}" aria-selected="${t === tabOf(a)}">${t === 'page' ? 'Page' : 'Context'}</button>`).join('')}</div>
+      <div class="tabs" role="tablist">${(['page', 'context'] as const).map((t) => `<button class="eyebrow" role="tab" data-tab="${t}" aria-selected="${t === tabOf(a)}">${t === 'page' ? 'Page' : 'Context'}</button>`).join('')}<button class="expand" data-wide aria-pressed="${wide}" title="${wide ? 'show the list again' : 'put the list away, the page taking the width'}">${wide ? '⤡ Show list' : '⤢ Expand'}</button></div>
       ${tabOf(a) === 'page' ? (hasPage(a.id) ? pageHtml(a) : noPageHtml(a, can)) : `<dl>${meta
         .filter(([, v]) => v)
         .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`)
@@ -189,6 +212,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     const a = current()
     $('.reader').classList.toggle('paging', !!a && tabOf(a) === 'page')
     paintOnce($('.reader'), a ? readerHtml(a) : '<p class="empty">Pick an artifact.</p>')
+    if (a) fillPage(a)
   }
 
   /** One of this extension's verbs, which the client's types (the core's verbs) don't name. */
@@ -232,6 +256,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     const a = current()
     if (a && target.closest('[data-keep-page]')) return hire(pagePrompt(a, tagOf(a.id)))
     const picked = target.closest<HTMLElement>('[data-tab]')?.dataset.tab
+    if (target.closest('[data-wide]')) return ((wide = !wide), $('.gallery').classList.toggle('wide', wide), draw())
     if (a && picked) return ((tab = picked as 'page' | 'context'), draw())
     if (a && target.closest('[data-copy-tag]')) return void copyTelling(tagOf(a.id), 'the entry tag', kit.toast)
     const work = target.closest<HTMLElement>('[data-work]')?.dataset.work

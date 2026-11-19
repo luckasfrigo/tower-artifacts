@@ -9,9 +9,9 @@ context it was made in, so any worker can modify or clone it without starting ov
 - **The sidebar:** an **Artifacts** tab after Floors and Stats, which opens the gallery. It's also in the palette.
 - **The main pane:** the gallery. Pinned artifacts come first, then the rest, newest first, searched by title,
   description, summary and who made it. Click one to see its link, the worker, floor or Desktop chat that made it,
-  its creation context and the prompts behind it, in two tabs: **Page** draws its kept page in place, served the way
-  `tower show` serves a file (with **Fetch page** to have a worker keep one that isn't here yet), and **Context** holds
-  how it was made. From there you can open it on
+  its creation context and the prompts behind it, in two tabs: **Page** draws its kept page in place, in a sandboxed frame
+  whose scripts reach neither the tower page nor its API (**Expand** puts the list away; **Fetch page** has a worker
+  keep a page that isn't here yet), and **Context** holds how it was made. From there you can open it on
   claude.ai, pin it, or hire a worker on a floor you pick to
   **modify** it (same link) or **clone** it (a new artifact). The worker starts from the entry.
 
