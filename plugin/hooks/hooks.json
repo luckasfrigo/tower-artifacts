@@ -1,10 +1,27 @@
 {
-  "description": "Records each Artifact publish in the tower's artifacts catalog and asks the worker for its creation context",
+  "description": "Records each Artifact publish in the tower's artifacts catalog, and shows an artifact the user's prompt refers to beside the worker",
   "hooks": {
     "PostToolUse": [
       {
         "matcher": "^Artifact$",
-        "hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/record.mjs\"", "timeout": 30 }]
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/record.mjs\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/refer.mjs\"",
+            "timeout": 15
+          }
+        ]
       }
     ]
   }
