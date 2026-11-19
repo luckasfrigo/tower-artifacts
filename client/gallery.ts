@@ -45,7 +45,13 @@ const STYLE = viewCss(
   & .reader .missing { color: var(--muted); font-style: italic; margin: 0; }
   & .reader blockquote { margin: 0 0 var(--sp-m); padding: var(--sp-s) var(--sp-l); border-left: 3px solid var(--line-strong); color: var(--ink); white-space: pre-wrap; }
   & .reader .empty { color: var(--muted); }
+  & .reader .tabs { display: flex; gap: var(--sp-xs); border-bottom: 1px solid var(--line); padding-bottom: var(--sp-s); }
+  & .reader .tabs button { padding: var(--sp-xs) var(--sp-m); border: 1px solid transparent; border-radius: var(--radius); background: none; color: var(--muted); cursor: pointer; }
+  & .reader .tabs button:hover { color: var(--ink); }
+  & .reader .tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--line-strong); }
+  & .reader.paging { padding-bottom: var(--sp-l); }
   & .reader .page { flex: 1; min-height: 24em; width: 100%; border: 1px solid var(--line); border-radius: var(--radius-s); background: #fff; }
+  & .reader .nopage { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-m); color: var(--muted); }
   @media (max-width: 720px) { & .gallery { grid-template-columns: 1fr; grid-template-rows: minmax(10em, 40%) 1fr; } & .reader { padding: var(--sp-l); } }`,
 )
 
@@ -62,8 +68,8 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
   let board: Board = first
   let query = ''
   let open: string | undefined
-  /** Whether the artifact open shows its page rather than its context. */
-  let paging = false
+  /** The reader's tab the user picked for the artifact open: its page, or how it was made. Unpicked, the page when kept. */
+  let tab: 'page' | 'context' | undefined
   /** The floor a worker is hired on, as last picked. */
   let floorPick: string | undefined
   const reads = new Map<string, Read>()
@@ -133,6 +139,13 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     return `<iframe class="page" title="${esc(a.title)}" src="/artifacts/page/${encodeURIComponent(a.id)}?v=${v}"></iframe>`
   }
 
+  const tabOf = (a: Artifact) => tab ?? (hasPage(a.id) ? 'page' : 'context')
+
+  /** Why the page isn't here, and what brings it: a worker reads it on claude.ai, the only place that serves it. */
+  const noPageHtml = (a: Artifact, can: boolean) =>
+    `<div class="nopage"><p>${a.url ? 'The page is not kept here yet. Only claude.ai serves it, signed in, so a worker reads it there and keeps it.' : 'No page was kept for this artifact, and it has no claude.ai link to read one from.'}</p>
+      ${a.url && can ? '<button class="primary" data-keep-page>Fetch page</button>' : ''}</div>`
+
   const readerHtml = (a: Artifact) => {
     const meta: [string, string][] = [
       ['Source', SOURCE_WORDS[a.source]],
@@ -149,11 +162,11 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     const can = board.floors.length > 0
     return `<h1>${esc(a.title)}</h1>${a.description ? `<p class="desc">${esc(a.description)}</p>` : ''}
       <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="primary" href="${esc(a.url)}" target="_blank" rel="noopener">Open on claude.ai</a>` : ''}
-        ${hasPage(a.id) ? `<button class="secondary" data-show-page aria-pressed="${paging}">${paging ? 'Show context' : 'Show page'}</button>` : a.url && can ? '<button class="secondary" data-keep-page title="a worker reads it on claude.ai and keeps it here">Fetch page</button>' : ''}
         <button class="secondary" data-pin="${esc(a.id)}">${a.pinned ? 'Unpin' : 'Pin'}</button>
         ${can ? `${floorsHtml(a)}<button class="secondary" data-work="modify">Modify with a worker</button><button class="secondary" data-work="clone">Clone with a worker</button>` : ''}
         <button class="secondary" data-copy-tag>Copy entry tag</button></div>
-      ${paging && hasPage(a.id) ? pageHtml(a) : `<dl>${meta
+      <div class="tabs" role="tablist">${(['page', 'context'] as const).map((t) => `<button class="eyebrow" role="tab" data-tab="${t}" aria-selected="${t === tabOf(a)}">${t === 'page' ? 'Page' : 'Context'}</button>`).join('')}</div>
+      ${tabOf(a) === 'page' ? (hasPage(a.id) ? pageHtml(a) : noPageHtml(a, can)) : `<dl>${meta
         .filter(([, v]) => v)
         .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`)
         .join('')}</dl>
@@ -174,6 +187,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     paintOnce($('.shelf-head .actions'), closeHtml(board.keys))
     paintOnce($('.list'), listHtml(artifacts, all.filter((a): a is Broken => !isArtifact(a))))
     const a = current()
+    $('.reader').classList.toggle('paging', !!a && tabOf(a) === 'page')
     paintOnce($('.reader'), a ? readerHtml(a) : '<p class="empty">Pick an artifact.</p>')
   }
 
@@ -217,7 +231,8 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     }
     const a = current()
     if (a && target.closest('[data-keep-page]')) return hire(pagePrompt(a, tagOf(a.id)))
-    if (a && target.closest('[data-show-page]')) return ((paging = !paging), draw())
+    const picked = target.closest<HTMLElement>('[data-tab]')?.dataset.tab
+    if (a && picked) return ((tab = picked as 'page' | 'context'), draw())
     if (a && target.closest('[data-copy-tag]')) return void copyTelling(tagOf(a.id), 'the entry tag', kit.toast)
     const work = target.closest<HTMLElement>('[data-work]')?.dataset.work
     if (a && work && floorPick) {
@@ -226,7 +241,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     }
     const id = target.closest<HTMLElement>('[data-artifact]')?.dataset.artifact
     if (!id) return
-    if (id !== open) paging = false
+    if (id !== open) tab = undefined
     open = id
     draw()
     $('.reader').scrollTop = 0
