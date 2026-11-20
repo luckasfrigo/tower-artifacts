@@ -9,9 +9,11 @@ context it was made in, so any worker can modify or clone it without starting ov
 - **The sidebar:** an **Artifacts** tab after Floors and Stats, which opens the gallery. It's also in the palette.
 - **The main pane:** the gallery. Pinned artifacts come first, then the rest, newest first, searched by title,
   description, summary and who made it. Click one to see its link, the worker, floor or Desktop chat that made it,
-  its creation context and the prompts behind it, in two tabs: **Page** draws its kept page in place, in a sandboxed frame
+  its creation context and the whole chat that made it, in two tabs: **Page** draws its kept page in place, in a sandboxed frame
   whose scripts reach neither the tower page nor its API (**Expand** puts the list away; **Fetch page** has a worker
-  keep a page that isn't here yet), and **Context** holds how it was made. From there you can open it on
+  keep a page that isn't here yet), and **Context** holds how it was made: the summary and the chat, each prompt
+  with the answer its turn ended on, read from the chat's transcript as it stands when you open the tab (the prompts
+  the entry kept are shown when the transcript isn't on this machine). From there you can open it on
   claude.ai, pin it, or hire a worker on a floor you pick to
   **modify** it (same link) or **clone** it (a new artifact). The worker starts from the entry.
 
@@ -20,12 +22,16 @@ context it was made in, so any worker can modify or clone it without starting ov
   | ![The gallery](shots/gallery-light.png) | ![The gallery](shots/gallery-dark.png) |
 
 - **The workers:** a Claude hook on the Artifact tool. Each time a worker publishes a page, the hook records it with
-  its link, title, local page, the worker, the floor and the chat's prompts, keeps the page, and asks the worker to
-  write the creation context while it still holds it. Two skills ship with it: `artifacts:import` and
+  its link, title, local page, the worker, the floor and the chat's prompts, keeps the page, shows it beside the
+  worker as `tower show` does (Claude Code also opens it in the browser, which no hook can stop), and asks the worker
+  to write the creation context while it still holds it. Two skills ship with it: `artifacts:import` and
   `artifacts:work`. A second hook, on each prompt, shows an artifact the prompt refers to beside the worker, as
   `tower show` does, and tells the worker which entry it is. A claude.ai link or an entry's tag is shown at once, and
   so is a title when the prompt holds only one; when it holds several, nothing is shown and the worker asks the user
-  which one is meant. For a looser reference, the guidance has the worker find it and show it, or ask. What `tower whoami` shows:
+  which one is meant. A prompt about an artifact already there ("open the smile artifact", "show me this artifact")
+  matches by a word of its title, the worker's own artifacts first, or the one artifact the worker made. For a looser
+  reference still, the guidance has the worker find it and show it, or ask, and never open it with the Artifact
+  tool's `open`, which goes to the browser. What `tower whoami` shows:
 
   ```
   artifacts  ·  claude.ai artifacts catalog: each one you publish is recorded; write its context when asked (`tower x artifacts context`). `tower kept artifacts` lists them, `tower read <tag>` one.
@@ -67,9 +73,11 @@ The hook and skills reach sessions that start after the extension is added; a ru
   (taken from the chat). `<id>.html` beside it is the page. Recording or importing again refreshes an entry and keeps
   its pin and summary. A later change by another worker keeps the original chat's prompts.
 - **Server** (`server.ts`): the verbs that write entries, the `page/<id>` read that serves a kept page (`serves:
-  "file"`), and the first load. It reads only local files, never the network.
+  "file"`), the `chat/<id>` read that gives the whole chat from the entry's transcript, and the first load. A later
+  publish from the same chat refreshes the entry's prompts; one from another chat keeps them. It reads only local files, never the network.
 - **Plugin**: `hooks/record.mjs` passes each Artifact publish (never a read, a list or an asset upload) to
-  `tower x artifacts record` and hands its answer back to the worker as context.
+  `tower x artifacts record`, `tower show`s the kept page and hands the answer back to the worker as context;
+  `hooks/refer.mjs` shows what a prompt refers to.
 - **Client**: `gallery.ts` (the view), `tab.ts`, `commands.ts` (the palette's entry) and `artifact.ts` (the entry
   format, which the server shares).
 - **The tab** is a view in the page's sidebar strip (`board.strip`) that draws nothing there. It places a button of

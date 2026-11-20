@@ -3,7 +3,10 @@
 // an exact reference, shown at once. A title anywhere in the prompt is a loose one, the user's choice: one such match
 // is shown too, but several are shown none of, and the worker asks the user which is meant. A title inside a longer
 // title that also matched counts as the longer one. One with no page kept is named, with how to keep it if it is the
-// one meant. Looser references still ("the roadmap") are the worker's to resolve, as the extension's guidance says.
+// one meant. A prompt that speaks of an artifact already there ("open the smile artifact") names one more loosely, by a
+// word of its title, those this worker made first, or, with no word matching, the one artifact this worker made; such a
+// match is shown or asked about as a title is. Looser references still ("the roadmap") are the worker's to resolve, as
+// the extension's guidance says.
 // Nothing here fails the prompt: the catalog unreadable, the hook says nothing.
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
@@ -33,12 +36,13 @@ const tagsByFile = (listing) => {
   return tags
 }
 
-/** An entry's title and link, from its `# Title` and its JSON header's `url`. */
+/** An entry's title, link and the worker session that made it, from its `# Title` and its JSON header. */
 const entryOf = (file) => {
   const md = readFileSync(file, 'utf8')
   const title = /^# (.+)$/m.exec(md)?.[1]?.trim() ?? ''
   const url = /"url":\s*"([^"]+)"/.exec(md)?.[1]
-  return { title, url }
+  const session = /"session":\s*"([^"]+)"/.exec(md)?.[1]
+  return { title, url, session }
 }
 
 const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -53,20 +57,37 @@ try {
   process.exit(0)
 }
 
+/** Whether the prompt speaks of an artifact already there ("the smile artifact", "this artifact"), not of a new one, which a looser match needs. */
+const aboutArtifacts = /\b(?:the|this|that|my|our|its)\s+(?:[\p{L}\p{N}-]+\s+){0,3}artifacts?\b/iu.test(prompt)
+/** A title's words that can name it alone: four letters or more, not the commonest. */
+const COMMON = new Set(['with', 'from', 'that', 'this', 'your', 'into', 'page', 'test', 'copy', 'draft', 'untitled'])
+const wordsOf = (title) => (title.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []).filter((w) => !COMMON.has(w))
+
 const exact = []
 const titled = []
+/** Entries the prompt names by a word of their title, when it speaks of an artifact; and those this worker made. */
+const worded = []
+const mine = []
 for (const [file, tag] of tags) {
   if (!file.endsWith('.md')) continue
   const id = basename(file, '.md')
   const page = join(dirname(file), `${id}.html`)
   const pageTag = tags.get(page)
-  const { title, url } = entryOf(file)
+  const { title, url, session } = entryOf(file)
   const a = { id, tag, title: title || id, url, page: pageTag ? page : undefined }
+  if (session && session === process.env.TOWER_SESSION_ID) mine.push(a)
+  if (aboutArtifacts && wordsOf(title).some(said)) worded.push(a)
   if (linked.has(id) || said(tag) || (pageTag && said(pageTag))) exact.push(a)
   else if (title.length >= 6 && title.toLowerCase() !== 'untitled' && prompt.toLowerCase().includes(title.toLowerCase())) titled.push(a)
 }
 /** Title matches, less each one inside a longer title that matched too: "Q1 Roadmap" in "Q1 Roadmap — Lanes". */
-const loose = titled.filter((a) => !titled.some((b) => b !== a && b.title.length > a.title.length && b.title.toLowerCase().includes(a.title.toLowerCase())))
+const byTitle = titled.filter((a) => !titled.some((b) => b !== a && b.title.length > a.title.length && b.title.toLowerCase().includes(a.title.toLowerCase())))
+/**
+ * With no title said, a prompt speaking of an artifact names one more loosely: by a word of its title ("the smile
+ * artifact"), those this worker made first; or, with no word matching, the one artifact this worker made.
+ */
+const mineWorded = worded.filter((a) => mine.includes(a))
+const loose = exact.length || byTitle.length ? byTitle : mineWorded.length ? mineWorded : worded.length ? worded : aboutArtifacts && mine.length === 1 ? mine : []
 if (!exact.length && !loose.length) process.exit(0)
 
 const ifMeant = (a) => (a.url ? `If it is the one meant, read it with the Artifact tool (${a.url}), keep it (\`tower x artifacts page ${a.id} --file <saved.html>\`) and \`tower show\` it.` : 'It has no claude.ai link to read one from.')
@@ -88,9 +109,9 @@ if (sure.length) {
 }
 if (loose.length > 1) {
   const listed = loose.slice(0, OPTIONS).map((a) => `- "${a.title}" (entry ${a.tag}; ${a.page ? `page ${a.page}` : 'no page kept'})`)
-  const others = loose.length > OPTIONS ? `\n${loose.length - OPTIONS} other titles matched too.` : ''
+  const others = loose.length > OPTIONS ? `\n${loose.length - OPTIONS} others matched too.` : ''
   parts.push(
-    `The user's prompt names the titles of ${loose.length} artifacts in the tower's catalog, and nothing was shown:\n${listed.join('\n')}${others}\n` +
+    `The user's prompt may refer to any of ${loose.length} artifacts in the tower's catalog, by their titles or words of them, and nothing was shown:\n${listed.join('\n')}${others}\n` +
       'Before doing anything with them, ask the user which one they mean with AskUserQuestion, one option per artifact (its title as the label, its entry tag in the description); its own Other answers none of them. Then `tower show` the page of the one picked, or, with no page kept, read it with the Artifact tool and keep it first. If the prompt is plainly about something else, leave them be.',
   )
 }

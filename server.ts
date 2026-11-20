@@ -22,36 +22,68 @@ type Loads = { hired?: { session: string; project: string; at: number } }
 /** How many of a chat's prompts an entry keeps, the latest, and how much of each. */
 const PROMPTS = 8
 const PROMPT_CHARS = 1500
+/** How much of each prompt and answer the chat read gives. */
+const TURN_CHARS = 6000
 
 const expand = (path: string) => (path.startsWith('~/') ? join(homedir(), path.slice(2)) : path)
 
-/** The prompts the user typed in a Claude transcript, oldest first: not tool results, commands' wrappers or the harness's notes. */
-export const promptsIn = (jsonl: string): string[] => {
-  const prompts: string[] = []
-  for (const line of jsonl.split('\n')) {
-    if (!line.includes('"type":"user"')) continue
-    let entry: { type?: string; isMeta?: boolean; message?: { content?: unknown } }
+/** A transcript line's entry, or `undefined` for a line cut short by a write in progress (the newest, read again later). */
+type Line = { type?: string; isMeta?: boolean; message?: { content?: unknown } }
+const entriesIn = (jsonl: string): Line[] =>
+  jsonl.split('\n').flatMap((line) => {
+    if (!line.includes('"type":"user"') && !line.includes('"type":"assistant"')) return []
     try {
-      entry = JSON.parse(line)
+      return [JSON.parse(line) as Line]
     } catch {
-      continue // a line cut short by a write in progress: the transcript's newest, read again on the next record
+      return []
     }
-    if (entry.type !== 'user' || entry.isMeta) continue
-    const content = entry.message?.content
-    const text =
-      typeof content === 'string'
-        ? content
-        : Array.isArray(content)
-          ? content
-              .filter((b): b is { type: 'text'; text: string } => b?.type === 'text')
-              .map((b) => b.text)
-              .join('\n')
-          : ''
-    const plain = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
-    if (!plain || /^<(command-|local-command|bash-|task-notification)/.test(plain) || plain.startsWith('[Request interrupted')) continue
-    prompts.push(plain.length > PROMPT_CHARS ? `${plain.slice(0, PROMPT_CHARS)}…` : plain)
+  })
+
+/** The text blocks of a message's content, joined. */
+const textOf = (content: unknown) =>
+  typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+          .filter((b): b is { type: 'text'; text: string } => b?.type === 'text')
+          .map((b) => b.text)
+          .join('\n')
+      : ''
+
+/** What the user typed, from a user entry: not a tool result, a command's wrapper or the harness's notes. */
+const promptOf = (entry: Line) => {
+  if (entry.type !== 'user' || entry.isMeta) return undefined
+  const plain = textOf(entry.message?.content).replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+  if (!plain || /^<(command-|local-command|bash-|task-notification)/.test(plain) || plain.startsWith('[Request interrupted')) return undefined
+  return plain
+}
+
+const cut = (s: string, chars: number) => (s.length > chars ? `${s.slice(0, chars)}…` : s)
+
+/** The prompts the user typed in a Claude transcript, oldest first, the latest few: what an entry keeps of its chat. */
+export const promptsIn = (jsonl: string): string[] =>
+  entriesIn(jsonl)
+    .flatMap((e) => {
+      const p = promptOf(e)
+      return p ? [cut(p, PROMPT_CHARS)] : []
+    })
+    .slice(-PROMPTS)
+
+/** One turn of a chat: what the user typed, and the worker's last words before the next prompt. */
+export type Turn = { prompt: string; answer: string }
+
+/** The whole chat of a Claude transcript, oldest turn first: each prompt with the answer the worker ended it on. */
+export const turnsIn = (jsonl: string): Turn[] => {
+  const turns: Turn[] = []
+  for (const e of entriesIn(jsonl)) {
+    const prompt = promptOf(e)
+    if (prompt) turns.push({ prompt: cut(prompt, TURN_CHARS), answer: '' })
+    else if (e.type === 'assistant' && turns.length) {
+      const said = textOf(e.message?.content).trim()
+      if (said) turns[turns.length - 1]!.answer = cut(said, TURN_CHARS)
+    }
   }
-  return prompts.slice(-PROMPTS)
+  return turns
 }
 
 const promptsOf = async (transcript: string | undefined) => (transcript ? promptsIn(await readFile(transcript, 'utf8').catch(() => '')) : [])
@@ -243,6 +275,14 @@ const start: Start = (ctx) => {
           return apiError('not_found', `${params.id} has no page kept: a worker keeps it with \`tower x artifacts page ${params.id} --file <saved.html>\``)
         return { file: join(dirOf(), page) }
       },
+      'chat/<id>': async ({ params }: { params: Record<string, string> }) => {
+        const a = await existing(idOf(params.id!))
+        if (!a) return notFound(params.id!)
+        if (!a.transcript) return { turns: [], why: 'The chat that made it has no transcript on this machine.' }
+        const jsonl = await readFile(a.transcript, 'utf8').catch(() => undefined)
+        if (jsonl === undefined) return { turns: [], why: `The chat's transcript is gone from ${a.transcript}.` }
+        return { turns: turnsIn(jsonl) }
+      },
     },
     verbs: {
       record: async ({ payload }: { payload: string }, c: CallCtx) =>
@@ -277,8 +317,9 @@ const start: Start = (ctx) => {
             file: file ?? was?.file,
             chat: was?.chat,
             transcript: was?.transcript ?? hook.transcript_path,
-            // The chat that made it is its context: a later change, maybe by another worker, keeps the first one's prompts.
-            prompts: was?.prompts.length ? was.prompts : await promptsOf(hook.transcript_path),
+            // The chat that made it is its context: a change from another chat keeps the first one's prompts; one from the
+            // same chat, which has gone on since, takes them again.
+            prompts: was?.prompts.length && was.transcript && was.transcript !== hook.transcript_path ? was.prompts : await promptsOf(hook.transcript_path),
           })
           const ask = was?.summary
             ? `If this change alters what it is for, update its summary: tower x artifacts context ${item.id} <<'EOF' … EOF`

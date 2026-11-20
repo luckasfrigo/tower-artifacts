@@ -45,6 +45,9 @@ const STYLE = viewCss(
   & .reader .missing { color: var(--muted); font-style: italic; margin: 0; }
   & .reader blockquote { margin: 0 0 var(--sp-m); padding: var(--sp-s) var(--sp-l); border-left: 3px solid var(--line-strong); color: var(--ink); white-space: pre-wrap; }
   & .reader .empty { color: var(--muted); }
+  & .reader .turn { display: flex; flex-direction: column; gap: var(--sp-s); margin-bottom: var(--sp-l); }
+  & .reader .turn blockquote { margin: 0; }
+  & .reader .answer { padding: var(--sp-s) var(--sp-l); border-radius: var(--radius-s); background: color-mix(in oklab, var(--ink) 4%, transparent); font-size: var(--fs-s); }
   & .reader .tabs { display: flex; gap: var(--sp-xs); border-bottom: 1px solid var(--line); padding-bottom: var(--sp-s); }
   & .reader .tabs button { padding: var(--sp-xs) var(--sp-m); border: 1px solid transparent; border-radius: var(--radius); background: none; color: var(--muted); cursor: pointer; }
   & .reader .tabs button:hover { color: var(--ink); }
@@ -61,6 +64,9 @@ const STYLE = viewCss(
 )
 
 const SOURCE_WORDS: Record<Artifact['source'], string> = { tower: 'tower', cowork: 'Claude Desktop · Cowork', 'claude.ai': 'claude.ai' }
+
+/** The chat that made an artifact, read from its transcript as it stands (the server's `chat/<id>`). */
+type Chat = { turns: { prompt: string; answer: string }[]; why?: string }
 
 /** An entry as of its version, read again when the board shows a newer one. */
 type Read = { modifiedAt: number; artifact: Artifact | Broken }
@@ -80,6 +86,10 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
   /** The floor a worker is hired on, as last picked. */
   let floorPick: string | undefined
   const reads = new Map<string, Read>()
+  /** The chat that made each artifact, as the `chat/<id>` read last gave it, or why it couldn't be read. */
+  const chats = new Map<string, Chat | Error>()
+  /** The artifact whose chat this view of the Context tab has read: read again each time the tab is opened on it. */
+  let chatRead: string | undefined
   const reading = new Map<string, number>()
 
   host.innerHTML = `<style>${STYLE}${markdownCss}</style>
@@ -205,7 +215,34 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
         .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`)
         .join('')}</dl>
       <h2>Creation context</h2>${a.summary ? `<div class="md">${markdownHtml(a.summary)}</div>` : `<p class="missing">No summary written yet: ask a worker to write one with <code>tower x artifacts context ${esc(a.id)}</code>.</p>`}
-      <h2>Prompts that made it</h2>${a.prompts.length ? a.prompts.map((p) => `<blockquote>${esc(p)}</blockquote>`).join('') : '<p class="missing">The chat that made it is not on this machine.</p>'}`}`
+      <h2>The chat that made it</h2>${chatHtml(a)}`}`
+  }
+
+  /**
+   * The whole chat, each prompt with the answer its turn ended on, as the transcript stands now. Without one on this
+   * machine, the prompts the entry kept when it was recorded.
+   */
+  const chatHtml = (a: Artifact) => {
+    const chat = chats.get(a.id)
+    const kept = () =>
+      a.prompts.length ? a.prompts.map((p) => `<blockquote>${esc(p)}</blockquote>`).join('') : '<p class="missing">The chat that made it is not on this machine.</p>'
+    if (!chat) return a.transcript ? '<p class="missing">Reading the chat…</p>' : kept()
+    if (chat instanceof Error) return `<p class="missing">The chat can't be read (${esc(chat.message)}); the prompts kept when it was recorded:</p>${kept()}`
+    if (!chat.turns.length) return `${chat.why ? `<p class="missing">${esc(chat.why)}${a.prompts.length ? ' The prompts kept when it was recorded:' : ''}</p>` : ''}${a.prompts.length || !chat.why ? kept() : ''}`
+    return chat.turns
+      .map((t) => `<div class="turn"><blockquote>${esc(t.prompt)}</blockquote>${t.answer ? `<div class="answer md">${markdownHtml(t.answer)}</div>` : ''}</div>`)
+      .join('')
+  }
+
+  /** Reads the chat of the artifact open on the Context tab, once each time the tab is opened on it. */
+  const readChat = (a: Artifact) => {
+    if (chatRead === a.id) return
+    chatRead = a.id
+    if (!a.transcript) return
+    void tower.text(`artifacts/chat/${encodeURIComponent(a.id)}`).then(
+      (text) => (chats.set(a.id, JSON.parse(text) as Chat), draw()),
+      (err: Error) => (chats.set(a.id, err), draw()),
+    )
   }
 
   const current = () => {
@@ -225,6 +262,8 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     paintOnce($('.rhead'), a ? headHtml(a) : '<p class="empty">Pick an artifact.</p>')
     paintOnce($('.rbody'), a ? bodyHtml(a) : '')
     if (a) fillPage(a)
+    if (a && tabOf(a) === 'context') readChat(a)
+    else chatRead = undefined
   }
 
   /** One of this extension's verbs, which the client's types (the core's verbs) don't name. */
