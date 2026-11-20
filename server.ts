@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Card } from '/lib/board.js'
 import { apiError, type CallCtx, isApiError, type Start, type StreamFact } from '/lib/extension.js'
-import { type Artifact, ARTIFACTS, LIST_PROMPT, pageOf, artifactOf, formatArtifact, type Header, idOfUrl, isArtifact, TOWER_WIDE, urlIn } from './client/artifact.ts'
+import { type Artifact, ARTIFACTS, LIST_PROMPT, PAGES, pageOf, artifactOf, formatArtifact, type Header, idOfUrl, isArtifact, TOWER_WIDE, urlIn } from './client/artifact.ts'
 
 /**
  * The artifacts catalog's writer: every verb that changes an entry of the tower-wide `artifacts` collection. `record`
@@ -181,15 +181,15 @@ const start: Start = (ctx) => {
       return item ? { id: item.id, tag: item.tag, pinned, said: `${pinned ? 'Pinned' : 'Unpinned'} ${item.tag}` } : notFound(artifact)
     })
 
-  /** The collection's folder on disk, as the board says. */
-  const dirOf = () => {
-    const c = ctx.board().collections.find((c) => c.id === ARTIFACTS)
-    if (!c) throw new Error(`the board holds no ${ARTIFACTS} collection`)
+  /** A collection's folder on disk, as the board says. */
+  const dirOf = (name: string) => {
+    const c = ctx.board().collections.find((c) => c.id === name)
+    if (!c) throw new Error(`the board holds no ${name} collection`)
     return c.dir
   }
 
   /** Keeps `file`, as it is, as the entry's page. */
-  const keepPage = async (entry: string, file: string) => ctx.collections.put(TOWER_WIDE, ARTIFACTS, pageOf(entry), await readFile(file, 'utf8'))
+  const keepPage = async (entry: string, file: string) => ctx.collections.put(TOWER_WIDE, PAGES, pageOf(entry), await readFile(file, 'utf8'))
 
   /**
    * What a publish's page came to, said after its record: kept when it is html, as published (a fragment the Artifact
@@ -200,7 +200,7 @@ const start: Start = (ctx) => {
     if (!/\.html?$/i.test(file)) return ` Its page (${basename(file)}) is not html, so the gallery can't show it.`
     try {
       await keepPage(entry, file)
-      return ' Its page is kept beside it.'
+      return ' Its page is kept in artifacts.pages.'
     } catch (err) {
       return ` Its page was not kept: ${(err as Error).message}.`
     }
@@ -266,14 +266,30 @@ const start: Start = (ctx) => {
   let tried = false
   ctx.every(5_000, firstLoad)
 
+  /**
+   * Pages kept before they had a collection of their own sat beside their entries in `artifacts`: each is moved to
+   * `PAGES` once, as the extension starts, so a listing of either shows each artifact once. A page `PAGES` holds
+   * already wins, being the newer keep.
+   */
+  const movePages = async () => {
+    const kept = new Set(ctx.collections.list(TOWER_WIDE, PAGES).map((i) => i.id))
+    const strays = entries().filter((i) => i.id.endsWith('.html'))
+    for (const i of strays) {
+      if (!kept.has(i.id)) await ctx.collections.put(TOWER_WIDE, PAGES, i.id, await ctx.collections.read(TOWER_WIDE, ARTIFACTS, i.id))
+      await ctx.collections.delete(TOWER_WIDE, ARTIFACTS, i.id)
+    }
+    if (strays.length) ctx.log(`moved ${strays.length} pages from ${ARTIFACTS} to ${PAGES}`)
+  }
+  movePages().catch((err: Error) => ctx.log(`the pages in ${ARTIFACTS} couldn't be moved to ${PAGES}: ${err.message}`))
+
   return {
     reduce: { loads: { init: {}, step: (_: Loads, [at, , fact]: StreamFact<'h', { session: string; project: string }>): Loads => ({ hired: { ...fact, at } }) } },
     reads: {
       'page/<id>': ({ params }: { params: Record<string, string> }) => {
         const page = pageOf(idOf(params.id!))
-        if (!ctx.collections.list(TOWER_WIDE, ARTIFACTS).some((i) => i.id === page))
+        if (!ctx.collections.list(TOWER_WIDE, PAGES).some((i) => i.id === page))
           return apiError('not_found', `${params.id} has no page kept: a worker keeps it with \`tower x artifacts page ${params.id} --file <saved.html>\``)
-        return { file: join(dirOf(), page) }
+        return { file: join(dirOf(PAGES), page) }
       },
       'chat/<id>': async ({ params }: { params: Record<string, string> }) => {
         const a = await existing(idOf(params.id!))
@@ -359,7 +375,7 @@ const start: Start = (ctx) => {
           if (!/<[a-z!][^>]*>/i.test(await readFile(file, 'utf8')))
             return apiError('invalid', `${file} holds no html: keep the page the Artifact tool's read gave, saved as a file`)
           const item = await keepPage(id, file)
-          return { id: item.id, tag: item.tag, said: `Kept the page of ${id} as ${item.tag}: \`tower show ${join(dirOf(), item.id)}\` shows it beside you` }
+          return { id: item.id, tag: item.tag, said: `Kept the page of ${id} as ${item.tag}: \`tower show ${join(dirOf(PAGES), item.id)}\` shows it beside you` }
         }),
 
       context: async ({ artifact, summary }: { artifact: string; summary: string }) =>

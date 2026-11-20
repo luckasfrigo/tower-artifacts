@@ -51,14 +51,14 @@ const said = (needle) => new RegExp(`(^|[^\\w-])${escape(needle)}($|[^\\w-])`, '
 const linked = new Set([...prompt.matchAll(/claude\.ai\/(?:code\/)?artifact\/([A-Za-z0-9_-]+)/g)].map((m) => m[1]))
 
 /**
- * The catalog's folder, read directly so a prompt about nothing costs no call to the tower: the tower-wide collections
- * sit in the system root beside the hooks socket. Where that is not so, `tower kept artifacts` names it.
+ * A tower-wide collection's folder, read directly so a prompt about nothing costs no call to the tower: the tower-wide
+ * collections sit in the system root beside the hooks socket. Where that is not so, `tower kept <name>` names it.
  */
-const folder = () => {
+const folder = (name) => {
   const root = process.env.TOWER_HOOKS_SOCKET ? dirname(process.env.TOWER_HOOKS_SOCKET) : undefined
-  const dir = root && join(root, 'collections', '_tower', 'artifacts')
+  const dir = root && join(root, 'collections', '_tower', name)
   if (dir && existsSync(dir)) return dir
-  const any = tower('kept', 'artifacts').split('\n').map((l) => l.trim()).find((l) => l.startsWith('/'))
+  const any = tower('kept', name).split('\n').map((l) => l.trim()).find((l) => l.startsWith('/'))
   return any && dirname(any)
 }
 
@@ -72,15 +72,16 @@ const tagShaped = /(^|[^\w-])[a-z]+-[a-z]+($|[^\w-])/.test(prompt)
 
 let entries
 try {
-  const dir = folder()
+  const dir = folder('artifacts')
   if (!dir) process.exit(0)
+  const pages = folder('artifacts.pages')
   entries = readdirSync(dir)
     .filter((f) => f.endsWith('.md'))
     .map((f) => {
       const id = basename(f, '.md')
-      const page = join(dir, `${id}.html`)
+      const page = pages && join(pages, `${id}.html`)
       const { title, url, session } = entryOf(join(dir, f))
-      return { id, file: join(dir, f), title: title || id, rawTitle: title, url, session, page: existsSync(page) ? page : undefined }
+      return { id, file: join(dir, f), title: title || id, rawTitle: title, url, session, page: page && existsSync(page) ? page : undefined }
     })
 } catch {
   process.exit(0)
@@ -92,10 +93,10 @@ const mine = entries.filter((a) => a.session && a.session === process.env.TOWER_
 const maybe = entries.some((a) => linked.has(a.id) || isTitled(a) || isWorded(a)) || (aboutArtifacts && mine.length > 0)
 if (!maybe && !tagShaped) process.exit(0)
 
-/** The tags, wanted only now that the prompt may name an entry: to match one said, and to name each to the worker. */
+/** The tags of entries and pages, wanted only now that the prompt may name one: to match one said, and to name each to the worker. */
 let tags
 try {
-  tags = tagsByFile(tower('kept', 'artifacts'))
+  tags = new Map([...tagsByFile(tower('kept', 'artifacts')), ...tagsByFile(tower('kept', 'artifacts.pages'))])
 } catch {
   process.exit(0)
 }

@@ -27,11 +27,11 @@ try {
 /** The id of the artifact the publish answered with: the id as `idOfUrl` (client/artifact.ts) reads it. */
 const idIn = (s) => /claude\.ai\/(?:code\/)?artifact\/([A-Za-z0-9_-]+)/.exec(s)?.[1]
 
-/** The kept page of the published artifact, as `tower kept artifacts` lists it, and its title. */
+/** The kept page of the published artifact, as `tower kept artifacts.pages` lists it, and its title. */
 const keptPage = () => {
   const id = idIn(JSON.stringify(hook.tool_response ?? '')) ?? idIn(String(input.url ?? ''))
   if (!id) return undefined
-  const page = tower('kept', 'artifacts')
+  const page = tower('kept', 'artifacts.pages')
     .split('\n')
     .map((line) => line.trim())
     .find((line) => line.startsWith('/') && line.endsWith(`/${id}.html`))

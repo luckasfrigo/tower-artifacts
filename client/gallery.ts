@@ -2,7 +2,7 @@ import type { Board } from '/lib/board.js'
 import { markdownCss, markdownHtml } from '/lib/markdown.js'
 import { closeHtml, copyTelling, itemPath, type Mount, paintOnce, viewCss } from '/lib/view.js'
 import { esc } from '/lib/words.js'
-import { type Artifact, ARTIFACTS, artifactOf, type Broken, byUpdated, clonePrompt, IMPORT_PROMPT, isArtifact, matches, modifyPrompt, pageOf, pagePrompt, TOWER_WIDE } from './artifact.ts'
+import { type Artifact, ARTIFACTS, artifactOf, type Broken, byUpdated, clonePrompt, IMPORT_PROMPT, isArtifact, matches, modifyPrompt, PAGES, pageOf, pagePrompt, TOWER_WIDE } from './artifact.ts'
 
 /**
  * `artifacts/gallery`, on the board: every entry of the tower-wide `artifacts` collection, pinned ones first, then the
@@ -72,6 +72,8 @@ type Chat = { turns: { prompt: string; answer: string }[]; why?: string }
 type Read = { modifiedAt: number; artifact: Artifact | Broken }
 
 const pathOf = (id: string) => itemPath(TOWER_WIDE, ARTIFACTS, id)
+/** Where an entry's kept page is read from. */
+const pagePathOf = (entry: string) => itemPath(TOWER_WIDE, PAGES, pageOf(entry))
 
 const day = (iso: string | undefined) => (iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '')
 
@@ -101,7 +103,9 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
 
   const collection = () => board.collections.find((c) => c.id === ARTIFACTS)
   const files = () => (collection()?.items ?? []).filter((i) => i.id.endsWith('.md'))
-  const hasPage = (id: string) => collection()?.items.some((i) => i.id === pageOf(id)) ?? false
+  const pages = () => board.collections.find((c) => c.id === PAGES)?.items ?? []
+  const pageItem = (id: string) => pages().find((i) => i.id === pageOf(id))
+  const hasPage = (id: string) => !!pageItem(id)
   const tagOf = (id: string) => collection()?.items.find((i) => i.id === id)?.tag ?? id
 
   const readAll = async () => {
@@ -147,7 +151,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
   }
 
   /** The kept page's version, which a new keep changes. */
-  const pageVersion = (a: Artifact) => `${a.id}@${collection()?.items.find((i) => i.id === pageOf(a.id))?.modifiedAt ?? 0}`
+  const pageVersion = (a: Artifact) => `${a.id}@${pageItem(a.id)?.modifiedAt ?? 0}`
 
   /**
    * A frame for the kept page, filled once painted (`fillPage`): its markup read as the item's text and drawn as the
@@ -164,7 +168,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     const version = frame?.dataset.page
     if (!frame || !version || filled.get(frame) === version) return
     filled.set(frame, version)
-    void tower.text(pathOf(pageOf(a.id))).then(
+    void tower.text(pagePathOf(a.id)).then(
       (html) => {
         if (filled.get(frame) === version) frame.srcdoc = html
       },
@@ -207,7 +211,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
       ['Local page', a.file ?? ''],
       ['Transcript', a.transcript ?? ''],
       ['Entry', tagOf(a.id)],
-      ['Page', hasPage(a.id) ? tagOf(pageOf(a.id)) : 'not kept yet: Fetch page has a worker keep it'],
+      ['Page', hasPage(a.id) ? (pageItem(a.id)?.tag ?? pageOf(a.id)) : 'not kept yet: Fetch page has a worker keep it'],
     ]
     const can = board.floors.length > 0
     return `${tabOf(a) === 'page' ? (hasPage(a.id) ? pageHtml(a) : noPageHtml(a, can)) : `<dl>${meta

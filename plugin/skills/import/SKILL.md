@@ -6,7 +6,8 @@ description: Import the user's claude.ai artifacts into the tower's artifacts ca
 # Import artifacts
 
 The catalog is the tower-wide `artifacts` collection: one entry per artifact (`<id>.md`: its link, where it came
-from, its creation context) and its page beside it (`<id>.html`), which the gallery shows. Work through the steps
+from, its creation context) and its page (`<id>.html` in the tower-wide `artifacts.pages` collection), which the
+gallery shows. Work through the steps
 without stopping to ask, then report.
 
 - **Started as `/artifacts:import list`** (the extension's first load): steps 1, 2 and 4 only. Pages and summaries
@@ -36,7 +37,7 @@ An artifact already in the catalog is refreshed, not doubled.
 ## 3. Each page and its summary
 
 `tower kept artifacts` lists the entries; `tower read <tag>` reads one. For every entry with a `url` that has no page
-yet (no `<id>.html` beside it) or no summary:
+yet (no `<id>.html` in `tower kept artifacts.pages`) or no summary:
 
 1. Read it with the Artifact tool (`action: "read"`, its `url`). When the result names a saved file holding the
    full page, keep that file. When it gives the HTML inline, write it to a file in your scratchpad first. Then:

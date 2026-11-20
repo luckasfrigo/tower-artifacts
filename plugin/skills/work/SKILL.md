@@ -20,7 +20,7 @@ description: Modify or clone one of the user's claude.ai artifacts from its entr
    The tower records the publish as you make it, and its hook asks you for the creation context: write it then with
    `tower x artifacts context <id> <<'EOF'` … `EOF`. For a clone, start from the original's summary and say what
    differs; for a change, update the summary only where what it is for or how it is built changed.
-5. `tower show` the local page you published from, so the user sees it beside you. The tower keeps it as the
-   artifact's page in the catalog (`<id>.html` beside its entry), which the gallery's **Show page** opens. To show
-   the user an artifact's page as it stands before you change it, `tower show` that file: `tower kept artifacts`
-   prints where each one is.
+5. The publish hook keeps the page in the catalog (`<id>.html` in the tower-wide `artifacts.pages` collection) and
+   shows it beside you, so don't also `tower show` the local file you published from. To show the user an artifact's
+   page as it stands before you change it, `tower show` its kept page: `tower kept artifacts.pages` prints where each
+   one is.

@@ -1,11 +1,14 @@
 /**
  * An artifact's catalog entry: one markdown file of the tower-wide `artifacts` collection. A `# Title` line, a ```json
  * header (where it lives, where it came from, when, and whether the user pinned it), then its creation context: a
- * `## Summary` written by a worker, and `## Prompts`, the user's prompts in the chat that made it, as found there.
+ * `## Summary` written by a worker, and `## Prompts`, the user's prompts in the chat that made it, as found there. Its page
+ * is kept apart, in `PAGES`.
  * Pure: shared by the server, which writes entries, and the gallery, which reads them.
  */
 
 export const ARTIFACTS = 'artifacts'
+/** The tower-wide collection of the artifacts' pages, apart from the entries so a listing of either shows each artifact once. */
+export const PAGES = 'artifacts.pages'
 /** The project of a tower-wide collection. */
 export const TOWER_WIDE = '_tower'
 
@@ -45,7 +48,7 @@ export const IMPORT_PROMPT = '/artifacts:import every artifact of my claude.ai a
 export const pagePrompt = (a: Artifact, tag: string) =>
   `Keep the page of the artifact “${a.title}” (${a.url}) in the catalog: read it with the Artifact tool, keep it with \`tower x artifacts page ${a.id} --file <the saved page>\`, and if its entry (\`tower read ${tag}\`) has no summary, write one with \`tower x artifacts context\`. Use the artifacts:import skill's step 3 for this one artifact only.`
 
-/** An entry's page beside it: `<id>.html` for `<id>.md`, what the gallery shows and a worker `tower show`s. */
+/** An entry's page in `PAGES`: `<id>.html` for `<id>.md`, what the gallery shows and a worker `tower show`s. */
 export const pageOf = (entry: string) => entry.replace(/\.md$/, '.html')
 
 export const isArtifact = (a: Artifact | Broken): a is Artifact => !('why' in a)

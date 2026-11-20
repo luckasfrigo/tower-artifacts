@@ -38,7 +38,8 @@ context it was made in, so any worker can modify or clone it without starting ov
   ```
 
 - **The CLI:** `tower x artifacts desktop | add | page | context | pin | unpin`, and `tower kept artifacts` /
-  `tower read <tag>` for the entries. A kept page is a file a worker can `tower show`.
+  `tower read <tag>` for the entries, `tower kept artifacts.pages` for their pages. A kept page is a file a worker can
+  `tower show`.
 
 Tower 3D and The Week draw nothing of it.
 
@@ -70,7 +71,9 @@ The hook and skills reach sessions that start after the extension is added; a ru
 - **Entries** are files in the tower-wide `artifacts` collection, named by the artifact's id, so one artifact is one
   entry whoever records it. `<id>.md` holds a `# Title`, a JSON header (`url`, `source`, dates, `pinned`,
   `callsign`, `project`, `file`, `chat`, `transcript`), then `## Summary` (written by a worker) and `## Prompts`
-  (taken from the chat). `<id>.html` beside it is the page. Recording or importing again refreshes an entry and keeps
+  (taken from the chat). The page is `<id>.html` in a second tower-wide collection, `artifacts.pages`, so a listing of
+  either shows each artifact once (pages kept beside the entries by an older version are moved there when the extension
+  starts). Recording or importing again refreshes an entry and keeps
   its pin and summary. A later change by another worker keeps the original chat's prompts.
 - **Server** (`server.ts`): the verbs that write entries, the `page/<id>` read that serves a kept page (`serves:
   "file"`), the `chat/<id>` read that gives the whole chat from the entry's transcript, and the first load. A later
