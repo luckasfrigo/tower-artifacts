@@ -4,12 +4,12 @@
 // is shown too, but several are shown none of, and the worker asks the user which is meant. A title inside a longer
 // title that also matched counts as the longer one. One with no page kept is named, with how to keep it if it is the
 // one meant. A prompt that speaks of an artifact already there ("open the smile artifact") names one more loosely, by a
-// word of its title, those this worker made first, or, with no word matching, the one artifact this worker made; such a
+// word of its title, those this worker made first, or, with no word matching, those this worker made; such a
 // match is shown or asked about as a title is. Looser references still ("the roadmap") are the worker's to resolve, as
 // the extension's guidance says.
 // Nothing here fails the prompt: the catalog unreadable, the hook says nothing.
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 
 /** At most this many artifacts are shown for one prompt, exact references among them. */
@@ -50,11 +50,16 @@ const said = (needle) => new RegExp(`(^|[^\\w-])${escape(needle)}($|[^\\w-])`, '
 /** The artifact ids the prompt links to on claude.ai: the id as `idOfUrl` (client/artifact.ts) reads it. */
 const linked = new Set([...prompt.matchAll(/claude\.ai\/(?:code\/)?artifact\/([A-Za-z0-9_-]+)/g)].map((m) => m[1]))
 
-let tags
-try {
-  tags = tagsByFile(tower('kept', 'artifacts'))
-} catch {
-  process.exit(0)
+/**
+ * The catalog's folder, read directly so a prompt about nothing costs no call to the tower: the tower-wide collections
+ * sit in the system root beside the hooks socket. Where that is not so, `tower kept artifacts` names it.
+ */
+const folder = () => {
+  const root = process.env.TOWER_HOOKS_SOCKET ? dirname(process.env.TOWER_HOOKS_SOCKET) : undefined
+  const dir = root && join(root, 'collections', '_tower', 'artifacts')
+  if (dir && existsSync(dir)) return dir
+  const any = tower('kept', 'artifacts').split('\n').map((l) => l.trim()).find((l) => l.startsWith('/'))
+  return any && dirname(any)
 }
 
 /** Whether the prompt speaks of an artifact already there ("the smile artifact", "this artifact"), not of a new one, which a looser match needs. */
@@ -62,35 +67,63 @@ const aboutArtifacts = /\b(?:the|this|that|my|our|its)\s+(?:[\p{L}\p{N}-]+\s+){0
 /** A title's words that can name it alone: four letters or more, not the commonest. */
 const COMMON = new Set(['with', 'from', 'that', 'this', 'your', 'into', 'page', 'test', 'copy', 'draft', 'untitled'])
 const wordsOf = (title) => (title.toLowerCase().match(/[\p{L}\p{N}]{4,}/gu) ?? []).filter((w) => !COMMON.has(w))
+/** Whether the prompt holds a word shaped like an item's tag (`wavy-salmon`), which only `tower kept` can tell. */
+const tagShaped = /(^|[^\w-])[a-z]+-[a-z]+($|[^\w-])/.test(prompt)
+
+let entries
+try {
+  const dir = folder()
+  if (!dir) process.exit(0)
+  entries = readdirSync(dir)
+    .filter((f) => f.endsWith('.md'))
+    .map((f) => {
+      const id = basename(f, '.md')
+      const page = join(dir, `${id}.html`)
+      const { title, url, session } = entryOf(join(dir, f))
+      return { id, file: join(dir, f), title: title || id, rawTitle: title, url, session, page: existsSync(page) ? page : undefined }
+    })
+} catch {
+  process.exit(0)
+}
+
+const isTitled = (a) => a.rawTitle.length >= 6 && a.rawTitle.toLowerCase() !== 'untitled' && prompt.toLowerCase().includes(a.rawTitle.toLowerCase())
+const isWorded = (a) => aboutArtifacts && wordsOf(a.rawTitle).some(said)
+const mine = entries.filter((a) => a.session && a.session === process.env.TOWER_SESSION_ID)
+const maybe = entries.some((a) => linked.has(a.id) || isTitled(a) || isWorded(a)) || (aboutArtifacts && mine.length > 0)
+if (!maybe && !tagShaped) process.exit(0)
+
+/** The tags, wanted only now that the prompt may name an entry: to match one said, and to name each to the worker. */
+let tags
+try {
+  tags = tagsByFile(tower('kept', 'artifacts'))
+} catch {
+  process.exit(0)
+}
+for (const a of entries) a.tag = tags.get(a.file) ?? a.id
 
 const exact = []
 const titled = []
-/** Entries the prompt names by a word of their title, when it speaks of an artifact; and those this worker made. */
-const worded = []
-const mine = []
-for (const [file, tag] of tags) {
-  if (!file.endsWith('.md')) continue
-  const id = basename(file, '.md')
-  const page = join(dirname(file), `${id}.html`)
-  const pageTag = tags.get(page)
-  const { title, url, session } = entryOf(file)
-  const a = { id, tag, title: title || id, url, page: pageTag ? page : undefined }
-  if (session && session === process.env.TOWER_SESSION_ID) mine.push(a)
-  if (aboutArtifacts && wordsOf(title).some(said)) worded.push(a)
-  if (linked.has(id) || said(tag) || (pageTag && said(pageTag))) exact.push(a)
-  else if (title.length >= 6 && title.toLowerCase() !== 'untitled' && prompt.toLowerCase().includes(title.toLowerCase())) titled.push(a)
+/** Entries the prompt names by a word of their title, when it speaks of an artifact. */
+const worded = entries.filter(isWorded)
+for (const a of entries) {
+  const pageTag = a.page && tags.get(a.page)
+  if (linked.has(a.id) || said(a.tag) || (pageTag && said(pageTag))) exact.push(a)
+  else if (isTitled(a)) titled.push(a)
 }
 /** Title matches, less each one inside a longer title that matched too: "Q1 Roadmap" in "Q1 Roadmap — Lanes". */
 const byTitle = titled.filter((a) => !titled.some((b) => b !== a && b.title.length > a.title.length && b.title.toLowerCase().includes(a.title.toLowerCase())))
 /**
  * With no title said, a prompt speaking of an artifact names one more loosely: by a word of its title ("the smile
- * artifact"), those this worker made first; or, with no word matching, the one artifact this worker made.
+ * artifact"), those this worker made first; or, with no word matching, those this worker made, shown when one, asked about when several.
  */
 const mineWorded = worded.filter((a) => mine.includes(a))
-const loose = exact.length || byTitle.length ? byTitle : mineWorded.length ? mineWorded : worded.length ? worded : aboutArtifacts && mine.length === 1 ? mine : []
+const loose = exact.length || byTitle.length ? byTitle : mineWorded.length ? mineWorded : worded.length ? worded : aboutArtifacts ? mine : []
 if (!exact.length && !loose.length) process.exit(0)
 
-const ifMeant = (a) => (a.url ? `If it is the one meant, read it with the Artifact tool (${a.url}), keep it (\`tower x artifacts page ${a.id} --file <saved.html>\`) and \`tower show\` it.` : 'It has no claude.ai link to read one from.')
+const ifMeant = (a) =>
+  a.url
+    ? `If it is the one meant, \`tower open ${a.url}\` gives the user the live page in one click; to show it here, read it with the Artifact tool, keep it (\`tower x artifacts page ${a.id} --file <saved.html>\`) and \`tower show\` it.`
+    : 'It has no claude.ai link to read one from.'
 const shown = (a) => {
   if (!a.page) return `- "${a.title}" (entry ${a.tag}): no page is kept, so nothing was shown. ${ifMeant(a)}`
   try {

@@ -29,7 +29,7 @@ context it was made in, so any worker can modify or clone it without starting ov
   `tower show` does, and tells the worker which entry it is. A claude.ai link or an entry's tag is shown at once, and
   so is a title when the prompt holds only one; when it holds several, nothing is shown and the worker asks the user
   which one is meant. A prompt about an artifact already there ("open the smile artifact", "show me this artifact")
-  matches by a word of its title, the worker's own artifacts first, or the one artifact the worker made. For a looser
+  matches by a word of its title, the worker's own artifacts first, or else the artifacts the worker made (one is shown, several are asked about). The hook reads the catalog's folder directly, so a prompt about nothing else costs no call to the tower. For a looser
   reference still, the guidance has the worker find it and show it, or ask, and never open it with the Artifact
   tool's `open`, which goes to the browser. What `tower whoami` shows:
 

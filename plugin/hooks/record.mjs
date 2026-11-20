@@ -44,7 +44,7 @@ try {
   const kept = keptPage()
   if (kept) {
     tower('show', kept.page, kept.title)
-    said += ` Its kept page is now shown beside you (${kept.page}). To show it again, \`tower show\` that file: the Artifact tool's open goes to the browser, not the tower.`
+    said += ` Its kept page is now shown beside you (${kept.page}), so the user sees it: don't also \`tower show\` the local file you published from, which would only show the same page twice. To show it again after a change, publish it (this hook shows it then) or \`tower show\` that kept file; the Artifact tool's open goes to the browser, not the tower.`
   }
 } catch (err) {
   said += ` Its page could not be shown beside you: ${failed(err)}`
