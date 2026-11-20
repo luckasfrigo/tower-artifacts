@@ -51,7 +51,9 @@ const STYLE = viewCss(
   & .reader .tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--line-strong); }
   & .gallery.wide { grid-template-columns: 1fr; } & .gallery.wide .index { display: none; }
   & .reader .tabs .expand { margin-left: auto; }
-  & .reader.paging { padding: var(--sp-l); gap: var(--sp-m); }
+  & .reader .rhead, & .reader .rbody { display: flex; flex-direction: column; gap: var(--sp-l); }
+  & .reader .rbody { flex: 1; min-height: 0; }
+  & .reader.paging { padding: var(--sp-l); gap: var(--sp-m); } & .reader.paging .rhead { gap: var(--sp-m); }
   & .reader.paging .page { min-height: 0; }
   & .reader .page { flex: 1; min-height: 24em; width: 100%; border: 1px solid var(--line); border-radius: var(--radius-s); background: #fff; }
   & .reader .nopage { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-m); color: var(--muted); }
@@ -84,7 +86,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
   <div class="shelf-head"><span class="label">Artifacts</span><span class="dim">pinned first, each with how it was made</span>
     <button class="secondary" data-import>Refresh from Claude Desktop</button><button class="secondary" data-import-account>Import my claude.ai account</button><span class="actions"></span></div>
   <div class="gallery"><nav class="index" aria-label="artifacts"><input type="search" placeholder="Search artifacts" aria-label="search artifacts"><div class="list"></div></nav>
-    <article class="reader" aria-live="polite"></article></div>`
+    <article class="reader" aria-live="polite"><div class="rhead"></div><div class="rbody"></div></article></div>`
   const $ = <T extends Element>(selector: string) => host.querySelector<T>(selector)!
 
   const collection = () => board.collections.find((c) => c.id === ARTIFACTS)
@@ -169,7 +171,22 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     `<div class="nopage"><p>${a.url ? 'The page is not kept here yet. Only claude.ai serves it, signed in, so a worker reads it there and keeps it.' : 'No page was kept for this artifact, and it has no claude.ai link to read one from.'}</p>
       ${a.url && can ? '<button class="primary" data-keep-page>Fetch page</button>' : ''}</div>`
 
-  const readerHtml = (a: Artifact) => {
+  /**
+   * The reader's head: the artifact's title, what can be done with it, and its tabs. Painted apart from the body, so a
+   * label changing here (Pin, Expand) leaves the page's frame, and what the user did in it, alone.
+   */
+  const headHtml = (a: Artifact) => {
+    const can = board.floors.length > 0
+    return `<h1>${esc(a.title)}</h1>${a.description ? `<p class="desc">${esc(a.description)}</p>` : ''}
+      <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="secondary" href="${esc(a.url)}" target="_blank" rel="noopener" title="open it in your browser, signed in to claude.ai">Open on claude.ai ↗</a>` : ''}
+        <button class="secondary" data-pin="${esc(a.id)}">${a.pinned ? 'Unpin' : 'Pin'}</button>
+        ${can ? `${floorsHtml(a)}<button class="secondary" data-work="modify">Modify with a worker</button><button class="secondary" data-work="clone">Clone with a worker</button>` : ''}
+        <button class="secondary" data-copy-tag>Copy entry tag</button></div>
+      <div class="tabs" role="tablist">${(['page', 'context'] as const).map((t) => `<button class="eyebrow" role="tab" data-tab="${t}" aria-selected="${t === tabOf(a)}">${t === 'page' ? 'Page' : 'Context'}</button>`).join('')}<button class="expand" data-wide aria-pressed="${wide}" title="${wide ? 'show the list again' : 'put the list away, the page taking the width'}">${wide ? '⤡ Show list' : '⤢ Expand'}</button></div>`
+  }
+
+  /** The reader's body: the page's frame, which changes only with the page's version, or how the artifact was made. */
+  const bodyHtml = (a: Artifact) => {
     const meta: [string, string][] = [
       ['Source', SOURCE_WORDS[a.source]],
       ['Made by', a.callsign ? `${a.callsign}${a.project ? ` on ${a.project}` : ''}` : ''],
@@ -183,13 +200,7 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
       ['Page', hasPage(a.id) ? tagOf(pageOf(a.id)) : 'not kept yet: Fetch page has a worker keep it'],
     ]
     const can = board.floors.length > 0
-    return `<h1>${esc(a.title)}</h1>${a.description ? `<p class="desc">${esc(a.description)}</p>` : ''}
-      <div class="acts">${a.url?.startsWith('https://claude.ai/') ? `<a class="secondary" href="${esc(a.url)}" target="_blank" rel="noopener" title="open it in your browser, signed in to claude.ai">Open on claude.ai ↗</a>` : ''}
-        <button class="secondary" data-pin="${esc(a.id)}">${a.pinned ? 'Unpin' : 'Pin'}</button>
-        ${can ? `${floorsHtml(a)}<button class="secondary" data-work="modify">Modify with a worker</button><button class="secondary" data-work="clone">Clone with a worker</button>` : ''}
-        <button class="secondary" data-copy-tag>Copy entry tag</button></div>
-      <div class="tabs" role="tablist">${(['page', 'context'] as const).map((t) => `<button class="eyebrow" role="tab" data-tab="${t}" aria-selected="${t === tabOf(a)}">${t === 'page' ? 'Page' : 'Context'}</button>`).join('')}<button class="expand" data-wide aria-pressed="${wide}" title="${wide ? 'show the list again' : 'put the list away, the page taking the width'}">${wide ? '⤡ Show list' : '⤢ Expand'}</button></div>
-      ${tabOf(a) === 'page' ? (hasPage(a.id) ? pageHtml(a) : noPageHtml(a, can)) : `<dl>${meta
+    return `${tabOf(a) === 'page' ? (hasPage(a.id) ? pageHtml(a) : noPageHtml(a, can)) : `<dl>${meta
         .filter(([, v]) => v)
         .map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`)
         .join('')}</dl>
@@ -211,7 +222,8 @@ export const mount: Mount = (host, { tower, board: first, kit }) => {
     paintOnce($('.list'), listHtml(artifacts, all.filter((a): a is Broken => !isArtifact(a))))
     const a = current()
     $('.reader').classList.toggle('paging', !!a && tabOf(a) === 'page')
-    paintOnce($('.reader'), a ? readerHtml(a) : '<p class="empty">Pick an artifact.</p>')
+    paintOnce($('.rhead'), a ? headHtml(a) : '<p class="empty">Pick an artifact.</p>')
+    paintOnce($('.rbody'), a ? bodyHtml(a) : '')
     if (a) fillPage(a)
   }
 

@@ -22,9 +22,10 @@ context it was made in, so any worker can modify or clone it without starting ov
 - **The workers:** a Claude hook on the Artifact tool. Each time a worker publishes a page, the hook records it with
   its link, title, local page, the worker, the floor and the chat's prompts, keeps the page, and asks the worker to
   write the creation context while it still holds it. Two skills ship with it: `artifacts:import` and
-  `artifacts:work`. A second hook, on each prompt, shows an artifact the prompt refers to (a claude.ai link, an
-  entry's tag, or its whole title) beside the worker, as `tower show` does, and tells the worker which entry it is; for
-  a looser reference, the guidance has the worker find it and show it. What `tower whoami` shows:
+  `artifacts:work`. A second hook, on each prompt, shows an artifact the prompt refers to beside the worker, as
+  `tower show` does, and tells the worker which entry it is. A claude.ai link or an entry's tag is shown at once, and
+  so is a title when the prompt holds only one; when it holds several, nothing is shown and the worker asks the user
+  which one is meant. For a looser reference, the guidance has the worker find it and show it, or ask. What `tower whoami` shows:
 
   ```
   artifacts  ·  claude.ai artifacts catalog: each one you publish is recorded; write its context when asked (`tower x artifacts context`). `tower kept artifacts` lists them, `tower read <tag>` one.
